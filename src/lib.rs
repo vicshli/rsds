@@ -4,8 +4,8 @@ use std::ops::Deref;
 use std::sync::RwLock;
 use std::sync::RwLockReadGuard;
 
-pub trait Map<K: Hash + PartialEq, V> {
-    fn get(&self, key: &K) -> Option<ElemRef<K, V>>;
+pub trait Map<'a, K: Hash + PartialEq, V, VRef: 'a + Deref> {
+    fn get(&'a self, key: &K) -> Option<VRef>;
     fn contains(&self, key: &K) -> bool;
     fn put(&self, key: K, value: V);
     fn remove(&self, key: &K) -> bool;
@@ -70,8 +70,8 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
     }
 }
 
-impl<K: Hash + PartialEq, V> Map<K, V> for StripedHashMap<K, V> {
-    fn get(&self, key: &K) -> Option<ElemRef<K, V>> {
+impl<'a, K: Hash + PartialEq, V> Map<'a, K, V, ElemRef<'a, K, V>> for StripedHashMap<K, V> {
+    fn get(&'a self, key: &K) -> Option<ElemRef<'a, K, V>> {
         let hash = self.hash(key);
         let bucket_idx = (hash as usize) % self.buckets.len();
         let bucket = self.buckets[bucket_idx].read().unwrap();
