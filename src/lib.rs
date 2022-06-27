@@ -46,6 +46,12 @@ pub struct StripedHashMap<K: Hash + PartialEq, V> {
     buckets: Vec<RwLock<Vec<(K, V)>>>,
 }
 
+impl<K: Hash + PartialEq, V> Default for StripedHashMap<K, V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
     pub fn new() -> Self {
         const DEFAULT_NUM_BUCKETS: usize = 10;
