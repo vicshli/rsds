@@ -1,19 +1,52 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::ops::Deref;
 use std::sync::RwLock;
+use std::sync::RwLockReadGuard;
 
-pub trait Map<K: Hash + PartialEq, V: Copy> {
-    fn get(&self, key: &K) -> Option<V>;
+pub trait Map<K: Hash + PartialEq, V> {
+    fn get(&self, key: &K) -> Option<ElemRef<K, V>>;
     fn contains(&self, key: &K) -> bool;
     fn put(&self, key: K, value: V);
     fn remove(&self, key: &K) -> bool;
 }
 
-pub struct StripedHashMap<K: Hash + PartialEq, V: Copy> {
+struct MaybeElemRef<'a, K: PartialEq, V> {
+    guard: RwLockReadGuard<'a, Vec<(K, V)>>,
+}
+
+impl<'a, K: PartialEq, V> MaybeElemRef<'a, K, V> {
+    fn find(self, key: &K) -> Option<ElemRef<'a, K, V>> {
+        for (i, entry) in self.guard.iter().enumerate() {
+            if entry.0 == *key {
+                return Some(ElemRef {
+                    idx: i,
+                    guard: self.guard,
+                });
+            }
+        }
+        None
+    }
+}
+
+pub struct ElemRef<'a, K: PartialEq, V> {
+    idx: usize,
+    guard: RwLockReadGuard<'a, Vec<(K, V)>>,
+}
+
+impl<'a, K: PartialEq, V> Deref for ElemRef<'a, K, V> {
+    type Target = V;
+
+    fn deref(&self) -> &Self::Target {
+        &self.guard[self.idx].1
+    }
+}
+
+pub struct StripedHashMap<K: Hash + PartialEq, V> {
     buckets: Vec<RwLock<Vec<(K, V)>>>,
 }
 
-impl<K: Hash + PartialEq, V: Copy> StripedHashMap<K, V> {
+impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
     pub fn new() -> Self {
         const DEFAULT_NUM_BUCKETS: usize = 10;
         StripedHashMap::with_num_buckets(DEFAULT_NUM_BUCKETS)
@@ -31,17 +64,13 @@ impl<K: Hash + PartialEq, V: Copy> StripedHashMap<K, V> {
     }
 }
 
-impl<K: Hash + PartialEq, V: Copy> Map<K, V> for StripedHashMap<K, V> {
-    fn get(&self, key: &K) -> Option<V> {
-        let hash = self.hash(&key);
+impl<K: Hash + PartialEq, V> Map<K, V> for StripedHashMap<K, V> {
+    fn get(&self, key: &K) -> Option<ElemRef<K, V>> {
+        let hash = self.hash(key);
         let bucket_idx = (hash as usize) % self.buckets.len();
         let bucket = self.buckets[bucket_idx].read().unwrap();
-        for entry in bucket.iter() {
-            if entry.0 == *key {
-                return Some(entry.1)
-            }
-        }
-        None
+        let searcher = MaybeElemRef { guard: bucket };
+        searcher.find(key)
     }
 
     fn contains(&self, key: &K) -> bool {
@@ -56,7 +85,7 @@ impl<K: Hash + PartialEq, V: Copy> Map<K, V> for StripedHashMap<K, V> {
     }
 
     fn remove(&self, key: &K) -> bool {
-        let hash = self.hash(&key);
+        let hash = self.hash(key);
         let bucket_idx = (hash as usize) % self.buckets.len();
         let mut bucket = self.buckets[bucket_idx].write().unwrap();
         for (i, entry) in bucket.iter().enumerate() {
