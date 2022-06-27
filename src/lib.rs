@@ -101,9 +101,15 @@ impl<K: Hash + PartialEq, V> Map<K, V> for StripedHashMap<K, V> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
-    fn it_works() {
-        let result = 2 + 2;
-        assert_eq!(result, 4);
+    fn test_hashtable() {
+        let map = StripedHashMap::new();
+        let key = "hello".to_string();
+        let val = "world".to_string();
+        map.put(key.clone(), val.clone());
+        assert!(map.contains(&key));
+        assert_eq!(*map.get(&key).unwrap(), val);
     }
 }
