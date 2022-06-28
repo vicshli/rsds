@@ -108,12 +108,10 @@ fn bench_multi_threaded<
         }));
     }
 
-    let t_start_barr = start_barr.clone();
-    let t_end_barr = end_barr.clone();
     handles.push(thread::spawn(move || {
-        t_start_barr.wait();
+        start_barr.wait();
         let now = Instant::now();
-        t_end_barr.wait();
+        end_barr.wait();
         let elapsed = now.elapsed();
         println!("StripedHashMap multithreaded elapsed: {:.2?}", elapsed);
     }));
