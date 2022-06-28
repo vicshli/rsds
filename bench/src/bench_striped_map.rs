@@ -81,7 +81,7 @@ fn bench_single_threaded<K: Hash + PartialEq + Eq + Clone, V: Clone>(src: &Vec<(
 
 fn bench_multi_threaded<
     K: Hash + PartialEq + Eq + Clone + Send + Sync + 'static,
-    V: Clone + Send + Sync + 'static,
+    V: PartialEq + Eq + Clone + Send + Sync + 'static,
 >(
     num_threads: usize,
     src: &Vec<(K, V)>,
@@ -99,10 +99,14 @@ fn bench_multi_threaded<
         let tmap = map.clone();
         let t_start_barr = start_barr.clone();
         let t_end_barr = end_barr.clone();
+        let verify_data = data.clone();
         handles.push(thread::spawn(move || {
             t_start_barr.wait();
             for (key, val) in data {
                 tmap.put(key, val);
+            }
+            for (key, val) in verify_data {
+                assert!(*tmap.get(&key).unwrap() == val);
             }
             t_end_barr.wait();
         }));
@@ -131,10 +135,14 @@ fn bench_multi_threaded<
         let tmap = dmap.clone();
         let t_start_barr = start_barr.clone();
         let t_end_barr = end_barr.clone();
+        let verify_data = data.clone();
         handles.push(thread::spawn(move || {
             t_start_barr.wait();
             for (key, val) in data {
                 tmap.insert(key, val);
+            }
+            for (key, val) in verify_data {
+                assert!(*tmap.get(&key).unwrap() == val);
             }
             t_end_barr.wait();
         }));
@@ -154,7 +162,7 @@ fn bench_multi_threaded<
 }
 
 fn main() {
-    let input = make_random_string_pairs(10_000_000);
+    let input = make_random_string_pairs(1_000_000);
     bench_single_threaded(&input);
     bench_multi_threaded(10, &input);
 }
