@@ -1,0 +1,15 @@
+[package]
+name = "bench"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rsds = { path = "../rsds" }
+rand = "0.5.0"
+dashmap = "5.3.4"
+
+[[bin]]
+name = "bench_striped_map"
+path = "src/bench_striped_map.rs"
