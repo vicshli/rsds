@@ -46,7 +46,7 @@ impl<'a, K: PartialEq, V> Deref for ElemRef<'a, K, V> {
 
 pub struct StripedHashMap<K: Hash + PartialEq, V> {
     buckets: Vec<RwLock<Vec<(K, V)>>>,
-    bucket_sizes: Vec<AtomicUsize>
+    bucket_sizes: Vec<AtomicUsize>,
 }
 
 impl<K: Hash + PartialEq, V> Default for StripedHashMap<K, V> {
@@ -64,13 +64,29 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
     pub fn with_num_buckets(num_buckets: usize) -> Self {
         let buckets = (0..num_buckets).map(|_| RwLock::new(vec![])).collect();
         let bucket_sizes = (0..num_buckets).map(|_| AtomicUsize::new(0)).collect();
-        StripedHashMap { buckets, bucket_sizes }
+        StripedHashMap {
+            buckets,
+            bucket_sizes,
+        }
     }
 
     fn hash(&self, key: &K) -> usize {
         let mut hasher = DefaultHasher::new();
         key.hash(&mut hasher);
         hasher.finish() as usize
+    }
+
+    fn _avg_bucket_size_relaxed(&self) -> usize {
+        self._avg_bucket_size(Ordering::Relaxed)
+    }
+
+    fn _avg_bucket_size(&self, ordering: Ordering) -> usize {
+        let num_buckets = self.buckets.len();
+        let bucket_sz_sum = self
+            .bucket_sizes
+            .iter()
+            .fold(0, |acc, cur| acc + cur.load(ordering));
+        bucket_sz_sum / num_buckets
     }
 }
 
