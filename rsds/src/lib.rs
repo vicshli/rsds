@@ -1,7 +1,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::RwLock;
 use std::sync::RwLockReadGuard;
 
@@ -48,6 +48,7 @@ pub struct StripedHashMap<K: Hash + PartialEq, V> {
     buckets: Vec<RwLock<Vec<(K, V)>>>,
     bucket_sizes: Vec<AtomicUsize>,
     max_avg_bucket_size: usize,
+    resize_in_progress: AtomicBool,
 }
 
 impl<K: Hash + PartialEq, V> Default for StripedHashMap<K, V> {
@@ -69,7 +70,8 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
         StripedHashMap {
             buckets,
             bucket_sizes,
-            max_avg_bucket_size: DEFAULT_MAX_AVG_BUCKET_SIZE
+            max_avg_bucket_size: DEFAULT_MAX_AVG_BUCKET_SIZE,
+            resize_in_progress: AtomicBool::new(false),
         }
     }
 
@@ -95,6 +97,8 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
             .fold(0, |acc, cur| acc + cur.load(ordering));
         bucket_sz_sum / num_buckets
     }
+
+    fn _resize(&self) {}
 }
 
 impl<'a, K: Hash + PartialEq, V> Map<'a, K, V, ElemRef<'a, K, V>> for StripedHashMap<K, V> {
@@ -116,6 +120,17 @@ impl<'a, K: Hash + PartialEq, V> Map<'a, K, V, ElemRef<'a, K, V>> for StripedHas
         let mut bucket = self.buckets[bucket_idx].write().unwrap();
         bucket.push((key, value));
         self.bucket_sizes[bucket_idx].fetch_add(1, Ordering::Relaxed);
+
+        if self._should_resize() {
+            if self
+                .resize_in_progress
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
+                self._resize();
+                self.resize_in_progress.swap(false, Ordering::SeqCst);
+            }
+        }
     }
 
     fn remove(&self, key: &K) -> bool {
