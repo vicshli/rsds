@@ -47,6 +47,7 @@ impl<'a, K: PartialEq, V> Deref for ElemRef<'a, K, V> {
 pub struct StripedHashMap<K: Hash + PartialEq, V> {
     buckets: Vec<RwLock<Vec<(K, V)>>>,
     bucket_sizes: Vec<AtomicUsize>,
+    max_avg_bucket_size: usize,
 }
 
 impl<K: Hash + PartialEq, V> Default for StripedHashMap<K, V> {
@@ -62,11 +63,13 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
     }
 
     pub fn with_num_buckets(num_buckets: usize) -> Self {
+        const DEFAULT_MAX_AVG_BUCKET_SIZE: usize = 100;
         let buckets = (0..num_buckets).map(|_| RwLock::new(vec![])).collect();
         let bucket_sizes = (0..num_buckets).map(|_| AtomicUsize::new(0)).collect();
         StripedHashMap {
             buckets,
             bucket_sizes,
+            max_avg_bucket_size: DEFAULT_MAX_AVG_BUCKET_SIZE
         }
     }
 
@@ -74,6 +77,10 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
         let mut hasher = DefaultHasher::new();
         key.hash(&mut hasher);
         hasher.finish() as usize
+    }
+
+    fn _should_resize(&self) -> bool {
+        self._avg_bucket_size_relaxed() >= self.max_avg_bucket_size
     }
 
     fn _avg_bucket_size_relaxed(&self) -> usize {
