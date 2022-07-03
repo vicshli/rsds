@@ -1,6 +1,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::RwLock;
 use std::sync::RwLockReadGuard;
 
@@ -45,6 +46,7 @@ impl<'a, K: PartialEq, V> Deref for ElemRef<'a, K, V> {
 
 pub struct StripedHashMap<K: Hash + PartialEq, V> {
     buckets: Vec<RwLock<Vec<(K, V)>>>,
+    bucket_sizes: Vec<AtomicUsize>
 }
 
 impl<K: Hash + PartialEq, V> Default for StripedHashMap<K, V> {
@@ -61,7 +63,8 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
 
     pub fn with_num_buckets(num_buckets: usize) -> Self {
         let buckets = (0..num_buckets).map(|_| RwLock::new(vec![])).collect();
-        StripedHashMap { buckets }
+        let bucket_sizes = (0..num_buckets).map(|_| AtomicUsize::new(0)).collect();
+        StripedHashMap { buckets, bucket_sizes }
     }
 
     fn hash(&self, key: &K) -> usize {
@@ -89,6 +92,7 @@ impl<'a, K: Hash + PartialEq, V> Map<'a, K, V, ElemRef<'a, K, V>> for StripedHas
         let bucket_idx = (hash as usize) % self.buckets.len();
         let mut bucket = self.buckets[bucket_idx].write().unwrap();
         bucket.push((key, value));
+        self.bucket_sizes[bucket_idx].fetch_add(1, Ordering::Relaxed);
     }
 
     fn remove(&self, key: &K) -> bool {
@@ -99,6 +103,7 @@ impl<'a, K: Hash + PartialEq, V> Map<'a, K, V, ElemRef<'a, K, V>> for StripedHas
         for (i, entry) in itr.enumerate() {
             if entry.0 == *key {
                 bucket.remove(i);
+                self.bucket_sizes[bucket_idx].fetch_sub(1, Ordering::Relaxed);
                 return true;
             }
         }
