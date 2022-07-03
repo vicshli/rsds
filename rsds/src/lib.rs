@@ -1,9 +1,11 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::sync::RwLock;
 use std::sync::RwLockReadGuard;
+use std::sync::RwLockWriteGuard;
 
 pub trait Map<'a, K: Hash + PartialEq, V, VRef: 'a + Deref> {
     fn get(&'a self, key: &K) -> Option<VRef>;
@@ -45,7 +47,7 @@ impl<'a, K: PartialEq, V> Deref for ElemRef<'a, K, V> {
 }
 
 pub struct StripedHashMap<K: Hash + PartialEq, V> {
-    buckets: Vec<RwLock<Vec<(K, V)>>>,
+    buckets: AtomicPtr<Arc<Vec<RwLock<Vec<(K, V)>>>>>,
     bucket_sizes: Vec<AtomicUsize>,
     max_avg_bucket_size: usize,
     resize_in_progress: AtomicBool,
@@ -65,10 +67,16 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
 
     pub fn with_num_buckets(num_buckets: usize) -> Self {
         const DEFAULT_MAX_AVG_BUCKET_SIZE: usize = 100;
-        let buckets = (0..num_buckets).map(|_| RwLock::new(vec![])).collect();
+        let buckets: Vec<RwLock<Vec<(K, V)>>> =
+            (0..num_buckets).map(|_| RwLock::new(vec![])).collect();
+
+        let wrapped_buckets = Box::new(Arc::new(buckets));
+        let bucket_ptr = Box::into_raw(wrapped_buckets);
+
         let bucket_sizes = (0..num_buckets).map(|_| AtomicUsize::new(0)).collect();
+
         StripedHashMap {
-            buckets,
+            buckets: AtomicPtr::new(bucket_ptr),
             bucket_sizes,
             max_avg_bucket_size: DEFAULT_MAX_AVG_BUCKET_SIZE,
             resize_in_progress: AtomicBool::new(false),
@@ -81,6 +89,32 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
         hasher.finish() as usize
     }
 
+    fn num_buckets(&self) -> usize {
+        unsafe { (*self.buckets.load(Ordering::SeqCst)).len() }
+    }
+
+    fn _get_read_bucket(&self, bucket_index: usize) -> RwLockReadGuard<Vec<(K, V)>> {
+        let buckets = unsafe { &*self.buckets.load(Ordering::SeqCst) };
+        buckets[bucket_index].read().unwrap()
+    }
+
+    fn _get_write_bucket(&self, bucket_index: usize) -> RwLockWriteGuard<Vec<(K, V)>> {
+        let buckets = unsafe { &*self.buckets.load(Ordering::SeqCst) };
+        buckets[bucket_index].write().unwrap()
+    }
+
+    fn _get_read_bucket_by_key(&self, key: &K) -> RwLockReadGuard<Vec<(K, V)>> {
+        let hash = self.hash(key);
+        let bucket_idx = hash % self.num_buckets();
+        self._get_read_bucket(bucket_idx)
+    }
+
+    fn _get_write_bucket_by_key(&self, key: &K) -> (usize, RwLockWriteGuard<Vec<(K, V)>>) {
+        let hash = self.hash(key);
+        let bucket_idx = hash % self.num_buckets();
+        (bucket_idx, self._get_write_bucket(bucket_idx))
+    }
+
     fn _should_resize(&self) -> bool {
         self._avg_bucket_size_relaxed() >= self.max_avg_bucket_size
     }
@@ -90,23 +124,29 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
     }
 
     fn _avg_bucket_size(&self, ordering: Ordering) -> usize {
-        let num_buckets = self.buckets.len();
         let bucket_sz_sum = self
             .bucket_sizes
             .iter()
             .fold(0, |acc, cur| acc + cur.load(ordering));
-        bucket_sz_sum / num_buckets
+        bucket_sz_sum / self.num_buckets()
     }
 
     fn _resize(&self) {}
 }
 
+impl<K: Hash + PartialEq, V> Drop for StripedHashMap<K, V> {
+    fn drop(&mut self) {
+        let buckets_ptr = self.buckets.load(Ordering::SeqCst);
+        let buckets = unsafe { Arc::from_raw(buckets_ptr) }; 
+        drop(buckets);
+    }
+}
+
 impl<'a, K: Hash + PartialEq, V> Map<'a, K, V, ElemRef<'a, K, V>> for StripedHashMap<K, V> {
     fn get(&'a self, key: &K) -> Option<ElemRef<'a, K, V>> {
-        let hash = self.hash(key);
-        let bucket_idx = (hash as usize) % self.buckets.len();
-        let bucket = self.buckets[bucket_idx].read().unwrap();
-        let searcher = MaybeElemRef { guard: bucket };
+        let searcher = MaybeElemRef {
+            guard: self._get_read_bucket_by_key(key),
+        };
         searcher.find(key)
     }
 
@@ -115,9 +155,7 @@ impl<'a, K: Hash + PartialEq, V> Map<'a, K, V, ElemRef<'a, K, V>> for StripedHas
     }
 
     fn put(&self, key: K, value: V) {
-        let hash = self.hash(&key);
-        let bucket_idx = (hash as usize) % self.buckets.len();
-        let mut bucket = self.buckets[bucket_idx].write().unwrap();
+        let (bucket_idx, mut bucket) = self._get_write_bucket_by_key(&key);
         bucket.push((key, value));
         self.bucket_sizes[bucket_idx].fetch_add(1, Ordering::Relaxed);
 
@@ -134,9 +172,7 @@ impl<'a, K: Hash + PartialEq, V> Map<'a, K, V, ElemRef<'a, K, V>> for StripedHas
     }
 
     fn remove(&self, key: &K) -> bool {
-        let hash = self.hash(key);
-        let bucket_idx = (hash as usize) % self.buckets.len();
-        let mut bucket = self.buckets[bucket_idx].write().unwrap();
+        let (bucket_idx, mut bucket) = self._get_write_bucket_by_key(&key);
         let itr = bucket.iter();
         for (i, entry) in itr.enumerate() {
             if entry.0 == *key {
