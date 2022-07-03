@@ -47,8 +47,8 @@ impl<'a, K: PartialEq, V> Deref for ElemRef<'a, K, V> {
 }
 
 pub struct StripedHashMap<K: Hash + PartialEq, V> {
-    buckets: AtomicPtr<Arc<Vec<RwLock<Vec<(K, V)>>>>>,
-    bucket_sizes: Vec<AtomicUsize>,
+    buckets: AtomicPtr<Vec<RwLock<Vec<(K, V)>>>>,
+    bucket_sizes: AtomicPtr<Arc<Vec<AtomicUsize>>>,
     max_avg_bucket_size: usize,
     resize_in_progress: AtomicBool,
 }
@@ -66,18 +66,21 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
     }
 
     pub fn with_num_buckets(num_buckets: usize) -> Self {
-        const DEFAULT_MAX_AVG_BUCKET_SIZE: usize = 100;
+        const DEFAULT_MAX_AVG_BUCKET_SIZE: usize = 10000;
         let buckets: Vec<RwLock<Vec<(K, V)>>> =
             (0..num_buckets).map(|_| RwLock::new(vec![])).collect();
 
-        let wrapped_buckets = Box::new(Arc::new(buckets));
+        let wrapped_buckets = Box::new(buckets);
         let bucket_ptr = Box::into_raw(wrapped_buckets);
 
-        let bucket_sizes = (0..num_buckets).map(|_| AtomicUsize::new(0)).collect();
+        let bucket_sizes = Box::new(Arc::new(
+            (0..num_buckets).map(|_| AtomicUsize::new(0)).collect(),
+        ));
+        let bucket_sizes_ptr = Box::into_raw(bucket_sizes);
 
         StripedHashMap {
             buckets: AtomicPtr::new(bucket_ptr),
-            bucket_sizes,
+            bucket_sizes: AtomicPtr::new(bucket_sizes_ptr),
             max_avg_bucket_size: DEFAULT_MAX_AVG_BUCKET_SIZE,
             resize_in_progress: AtomicBool::new(false),
         }
@@ -94,13 +97,29 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
     }
 
     fn _get_read_bucket(&self, bucket_index: usize) -> RwLockReadGuard<Vec<(K, V)>> {
-        let buckets = unsafe { &*self.buckets.load(Ordering::SeqCst) };
-        buckets[bucket_index].read().unwrap()
+        loop {
+            let buckets = unsafe { &*self.buckets.load(Ordering::SeqCst) };
+            self._guard_resize();
+            let r = buckets[bucket_index].read().unwrap();
+            if self.resize_in_progress.load(Ordering::SeqCst) {
+                drop(r);
+                continue;
+            }
+            return r;
+        }
     }
 
     fn _get_write_bucket(&self, bucket_index: usize) -> RwLockWriteGuard<Vec<(K, V)>> {
-        let buckets = unsafe { &*self.buckets.load(Ordering::SeqCst) };
-        buckets[bucket_index].write().unwrap()
+        loop {
+            let buckets = unsafe { &*self.buckets.load(Ordering::SeqCst) };
+            self._guard_resize();
+            let w = buckets[bucket_index].write().unwrap();
+            if self.resize_in_progress.load(Ordering::SeqCst) {
+                drop(w);
+                continue;
+            }
+            return w;
+        }
     }
 
     fn _get_read_bucket_by_key(&self, key: &K) -> RwLockReadGuard<Vec<(K, V)>> {
@@ -124,20 +143,70 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
     }
 
     fn _avg_bucket_size(&self, ordering: Ordering) -> usize {
-        let bucket_sz_sum = self
-            .bucket_sizes
+        let bucket_sizes = unsafe { &*self.bucket_sizes.load(Ordering::SeqCst) };
+        let bucket_sz_sum = bucket_sizes
             .iter()
             .fold(0, |acc, cur| acc + cur.load(ordering));
         bucket_sz_sum / self.num_buckets()
     }
 
-    fn _resize(&self) {}
+    fn _increment_bucket_size(&self, bucket_index: usize) {
+        let bucket_sizes = unsafe { &*self.bucket_sizes.load(Ordering::SeqCst) };
+        bucket_sizes[bucket_index].fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn _decrement_bucket_size(&self, bucket_index: usize) {
+        let bucket_sizes = unsafe { &*self.bucket_sizes.load(Ordering::SeqCst) };
+        bucket_sizes[bucket_index].fetch_sub(1, Ordering::Relaxed);
+    }
+
+    fn _resize(&self) {
+        let buckets = unsafe { Box::from_raw(self.buckets.load(Ordering::SeqCst)) };
+        let old_len = buckets.len();
+        let new_len = old_len * 2;
+        let mut new_buckets: Vec<Vec<(K, V)>> = (0..new_len).map(|_| Vec::new()).collect();
+
+        // flush out all pending readers/writers.
+        // this allows us to safely move data from the old buckets to the new.
+        for bucket in buckets.iter() {
+            drop(bucket.write().unwrap());
+        }
+
+        for locked_bucket in buckets.into_iter() {
+            let bucket = locked_bucket.into_inner().unwrap();
+            for (k, v) in bucket {
+                let hash = self.hash(&k);
+                let new_bucket_idx = hash % new_len;
+                new_buckets[new_bucket_idx].push((k, v));
+            }
+        }
+
+        let new_bucket_sizes = new_buckets
+            .iter()
+            .map(|b| AtomicUsize::new(b.len()))
+            .collect();
+
+        let new_buckets_locked = new_buckets.into_iter().map(|b| RwLock::new(b)).collect();
+        let new_buckets_wrapped = Box::new(new_buckets_locked);
+        let new_buckets_ptr = Box::into_raw(new_buckets_wrapped);
+        self.buckets.swap(new_buckets_ptr, Ordering::SeqCst);
+
+        let new_bucket_sizes_ptr = Box::into_raw(Box::new(Arc::new(new_bucket_sizes)));
+        self.bucket_sizes
+            .swap(new_bucket_sizes_ptr, Ordering::SeqCst);
+    }
+
+    fn _guard_resize(&self) {
+        while self.resize_in_progress.load(Ordering::SeqCst) {
+            std::hint::spin_loop()
+        }
+    }
 }
 
 impl<K: Hash + PartialEq, V> Drop for StripedHashMap<K, V> {
     fn drop(&mut self) {
         let buckets_ptr = self.buckets.load(Ordering::SeqCst);
-        let buckets = unsafe { Arc::from_raw(buckets_ptr) }; 
+        let buckets = unsafe { Box::from_raw(buckets_ptr) };
         drop(buckets);
     }
 }
@@ -157,14 +226,14 @@ impl<'a, K: Hash + PartialEq, V> Map<'a, K, V, ElemRef<'a, K, V>> for StripedHas
     fn put(&self, key: K, value: V) {
         let (bucket_idx, mut bucket) = self._get_write_bucket_by_key(&key);
         bucket.push((key, value));
-        self.bucket_sizes[bucket_idx].fetch_add(1, Ordering::Relaxed);
-
+        self._increment_bucket_size(bucket_idx);
         if self._should_resize() {
             if self
                 .resize_in_progress
                 .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
                 .is_ok()
             {
+                drop(bucket);
                 self._resize();
                 self.resize_in_progress.swap(false, Ordering::SeqCst);
             }
@@ -177,7 +246,7 @@ impl<'a, K: Hash + PartialEq, V> Map<'a, K, V, ElemRef<'a, K, V>> for StripedHas
         for (i, entry) in itr.enumerate() {
             if entry.0 == *key {
                 bucket.remove(i);
-                self.bucket_sizes[bucket_idx].fetch_sub(1, Ordering::Relaxed);
+                self._decrement_bucket_size(bucket_idx);
                 return true;
             }
         }
