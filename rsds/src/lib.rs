@@ -17,7 +17,8 @@ struct MaybeElemRef<'a, K: PartialEq, V> {
 
 impl<'a, K: PartialEq, V> MaybeElemRef<'a, K, V> {
     fn find(self, key: &K) -> Option<ElemRef<'a, K, V>> {
-        for (i, entry) in self.guard.iter().enumerate() {
+        let itr = self.guard.iter();
+        for (i, entry) in itr.enumerate() {
             if entry.0 == *key {
                 return Some(ElemRef {
                     idx: i,
@@ -94,7 +95,8 @@ impl<'a, K: Hash + PartialEq, V> Map<'a, K, V, ElemRef<'a, K, V>> for StripedHas
         let hash = self.hash(key);
         let bucket_idx = (hash as usize) % self.buckets.len();
         let mut bucket = self.buckets[bucket_idx].write().unwrap();
-        for (i, entry) in bucket.iter().enumerate() {
+        let itr = bucket.iter();
+        for (i, entry) in itr.enumerate() {
             if entry.0 == *key {
                 bucket.remove(i);
                 return true;
