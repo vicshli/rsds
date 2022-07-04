@@ -66,7 +66,7 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
     }
 
     pub fn with_num_buckets(num_buckets: usize) -> Self {
-        const DEFAULT_MAX_AVG_BUCKET_SIZE: usize = 10000;
+        const DEFAULT_MAX_AVG_BUCKET_SIZE: usize = 500;
         let buckets: Vec<RwLock<Vec<(K, V)>>> =
             (0..num_buckets).map(|_| RwLock::new(vec![])).collect();
 
@@ -96,10 +96,15 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
         unsafe { (*self.buckets.load(Ordering::SeqCst)).len() }
     }
 
-    fn _get_read_bucket(&self, bucket_index: usize) -> RwLockReadGuard<Vec<(K, V)>> {
+    fn _get_read_bucket_by_key(&self, key: &K) -> RwLockReadGuard<Vec<(K, V)>> {
+        let hash = self.hash(key);
         loop {
-            let buckets = unsafe { &*self.buckets.load(Ordering::SeqCst) };
             self._guard_resize();
+            let buckets = unsafe { &*self.buckets.load(Ordering::SeqCst) };
+            if self.resize_in_progress.load(Ordering::SeqCst) {
+                continue;
+            }
+            let bucket_index = hash % buckets.len();
             let r = buckets[bucket_index].read().unwrap();
             if self.resize_in_progress.load(Ordering::SeqCst) {
                 drop(r);
@@ -109,29 +114,22 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
         }
     }
 
-    fn _get_write_bucket(&self, bucket_index: usize) -> RwLockWriteGuard<Vec<(K, V)>> {
+    fn _get_write_bucket_by_key(&self, key: &K) -> (usize, RwLockWriteGuard<Vec<(K, V)>>) {
+        let hash = self.hash(key);
         loop {
-            let buckets = unsafe { &*self.buckets.load(Ordering::SeqCst) };
             self._guard_resize();
+            let buckets = unsafe { &*self.buckets.load(Ordering::SeqCst) };
+            if self.resize_in_progress.load(Ordering::SeqCst) {
+                continue;
+            }
+            let bucket_index = hash % buckets.len();
             let w = buckets[bucket_index].write().unwrap();
             if self.resize_in_progress.load(Ordering::SeqCst) {
                 drop(w);
                 continue;
             }
-            return w;
+            return (bucket_index, w);
         }
-    }
-
-    fn _get_read_bucket_by_key(&self, key: &K) -> RwLockReadGuard<Vec<(K, V)>> {
-        let hash = self.hash(key);
-        let bucket_idx = hash % self.num_buckets();
-        self._get_read_bucket(bucket_idx)
-    }
-
-    fn _get_write_bucket_by_key(&self, key: &K) -> (usize, RwLockWriteGuard<Vec<(K, V)>>) {
-        let hash = self.hash(key);
-        let bucket_idx = hash % self.num_buckets();
-        (bucket_idx, self._get_write_bucket(bucket_idx))
     }
 
     fn _should_resize(&self) -> bool {
@@ -181,7 +179,7 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
             }
         }
 
-        let new_bucket_sizes = new_buckets
+        let new_bucket_sizes: Vec<AtomicUsize> = new_buckets
             .iter()
             .map(|b| AtomicUsize::new(b.len()))
             .collect();

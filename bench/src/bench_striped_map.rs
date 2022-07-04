@@ -7,6 +7,8 @@ use std::sync::Arc;
 use std::sync::Barrier;
 use std::thread;
 use std::time::Instant;
+use std::fmt::Display;
+use std::fmt::Debug;
 
 const NUM_BUCKETS: usize = 100;
 
@@ -80,8 +82,8 @@ fn bench_single_threaded<K: Hash + PartialEq + Eq + Clone, V: Clone>(src: &Vec<(
 }
 
 fn bench_multi_threaded<
-    K: Hash + PartialEq + Eq + Clone + Send + Sync + 'static,
-    V: PartialEq + Eq + Clone + Send + Sync + 'static,
+    K: Display + Debug + Hash + PartialEq + Eq + Clone + Send + Sync + 'static,
+    V: Display + Debug + PartialEq + Eq + Clone + Send + Sync + 'static,
 >(
     num_threads: usize,
     src: &Vec<(K, V)>,
