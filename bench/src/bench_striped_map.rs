@@ -3,12 +3,12 @@ use std::hash::Hash;
 use dashmap::DashMap;
 use rand::{distributions::Alphanumeric, Rng};
 use rsds::{Map, StripedHashMap};
+use std::fmt::Debug;
+use std::fmt::Display;
 use std::sync::Arc;
 use std::sync::Barrier;
 use std::thread;
 use std::time::Instant;
-use std::fmt::Display;
-use std::fmt::Debug;
 
 const NUM_BUCKETS: usize = 100;
 

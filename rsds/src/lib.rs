@@ -2,7 +2,7 @@ mod striped_map;
 
 pub use striped_map::StripedHashMap;
 
-use std::hash::{Hash};
+use std::hash::Hash;
 use std::ops::Deref;
 
 pub trait Map<'a, K: Hash + PartialEq, V, VRef: 'a + Deref> {
@@ -11,5 +11,3 @@ pub trait Map<'a, K: Hash + PartialEq, V, VRef: 'a + Deref> {
     fn put(&self, key: K, value: V);
     fn remove(&self, key: &K) -> bool;
 }
-
-

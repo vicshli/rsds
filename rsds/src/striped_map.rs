@@ -1,3 +1,4 @@
+use crate::Map;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
@@ -6,7 +7,6 @@ use std::sync::Arc;
 use std::sync::RwLock;
 use std::sync::RwLockReadGuard;
 use std::sync::RwLockWriteGuard;
-use crate::Map;
 
 type Bucket<K, V> = Vec<(K, V)>;
 
