@@ -46,10 +46,10 @@ impl<'a, K: PartialEq, V> Deref for ElemRef<'a, K, V> {
 }
 
 pub struct StripedHashMap<K: Hash + PartialEq, V> {
-    buckets: AtomicPtr<Vec<ProtectedBucket<K, V>>>,
-    bucket_sizes: AtomicPtr<Arc<Vec<CachePadded<AtomicUsize>>>>,
+    buckets: CachePadded<AtomicPtr<Vec<ProtectedBucket<K, V>>>>,
+    bucket_sizes: CachePadded<AtomicPtr<Arc<Vec<CachePadded<AtomicUsize>>>>>,
     max_avg_bucket_size: usize,
-    resize_in_progress: AtomicBool,
+    resize_in_progress: CachePadded<AtomicBool>,
 }
 
 impl<K: Hash + PartialEq, V> Default for StripedHashMap<K, V> {
@@ -78,10 +78,10 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
         let bucket_sizes_ptr = Box::into_raw(bucket_sizes);
 
         StripedHashMap {
-            buckets: AtomicPtr::new(bucket_ptr),
-            bucket_sizes: AtomicPtr::new(bucket_sizes_ptr),
+            buckets:  CachePadded::new(AtomicPtr::new(bucket_ptr)),
+            bucket_sizes: CachePadded::new(AtomicPtr::new(bucket_sizes_ptr)),
             max_avg_bucket_size: DEFAULT_MAX_AVG_BUCKET_SIZE,
-            resize_in_progress: AtomicBool::new(false),
+            resize_in_progress: CachePadded::new(AtomicBool::new(false)),
         }
     }
 
