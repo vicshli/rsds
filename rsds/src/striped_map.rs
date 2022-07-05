@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::sync::RwLock;
 use std::sync::RwLockReadGuard;
 use std::sync::RwLockWriteGuard;
+use crossbeam::utils::CachePadded;
 
 type Bucket<K, V> = Vec<(K, V)>;
 
@@ -46,7 +47,7 @@ impl<'a, K: PartialEq, V> Deref for ElemRef<'a, K, V> {
 
 pub struct StripedHashMap<K: Hash + PartialEq, V> {
     buckets: AtomicPtr<Vec<ProtectedBucket<K, V>>>,
-    bucket_sizes: AtomicPtr<Arc<Vec<AtomicUsize>>>,
+    bucket_sizes: AtomicPtr<Arc<Vec<CachePadded<AtomicUsize>>>>,
     max_avg_bucket_size: usize,
     resize_in_progress: AtomicBool,
 }
@@ -72,7 +73,7 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
         let bucket_ptr = Box::into_raw(wrapped_buckets);
 
         let bucket_sizes = Box::new(Arc::new(
-            (0..num_buckets).map(|_| AtomicUsize::new(0)).collect(),
+            (0..num_buckets).map(|_| CachePadded::new(AtomicUsize::new(0))).collect(),
         ));
         let bucket_sizes_ptr = Box::into_raw(bucket_sizes);
 
@@ -177,12 +178,12 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
             }
         }
 
-        let new_bucket_sizes: Vec<AtomicUsize> = new_buckets
+        let new_bucket_sizes = new_buckets
             .iter()
-            .map(|b| AtomicUsize::new(b.len()))
+            .map(|b| CachePadded::new(AtomicUsize::new(b.len())))
             .collect();
 
-        let new_buckets_locked = new_buckets.into_iter().map(|b| RwLock::new(b)).collect();
+        let new_buckets_locked = new_buckets.into_iter().map(RwLock::new).collect();
         let new_buckets_wrapped = Box::new(new_buckets_locked);
         let new_buckets_ptr = Box::into_raw(new_buckets_wrapped);
         self.buckets.swap(new_buckets_ptr, Ordering::SeqCst);
@@ -237,7 +238,7 @@ impl<'a, K: Hash + PartialEq, V> Map<'a, K, V, ElemRef<'a, K, V>> for StripedHas
     }
 
     fn remove(&self, key: &K) -> bool {
-        let (bucket_idx, mut bucket) = self._get_write_bucket_by_key(&key);
+        let (bucket_idx, mut bucket) = self._get_write_bucket_by_key(key);
         let itr = bucket.iter();
         for (i, entry) in itr.enumerate() {
             if entry.0 == *key {
