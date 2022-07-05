@@ -8,8 +8,12 @@ use std::sync::RwLockReadGuard;
 use std::sync::RwLockWriteGuard;
 use crate::Map;
 
+type Bucket<K, V> = Vec<(K, V)>;
+
+type ProtectedBucket<K, V> = RwLock<Bucket<K, V>>;
+
 struct MaybeElemRef<'a, K: PartialEq, V> {
-    guard: RwLockReadGuard<'a, Vec<(K, V)>>,
+    guard: RwLockReadGuard<'a, Bucket<K, V>>,
 }
 
 impl<'a, K: PartialEq, V> MaybeElemRef<'a, K, V> {
@@ -29,7 +33,7 @@ impl<'a, K: PartialEq, V> MaybeElemRef<'a, K, V> {
 
 pub struct ElemRef<'a, K: PartialEq, V> {
     idx: usize,
-    guard: RwLockReadGuard<'a, Vec<(K, V)>>,
+    guard: RwLockReadGuard<'a, Bucket<K, V>>,
 }
 
 impl<'a, K: PartialEq, V> Deref for ElemRef<'a, K, V> {
@@ -41,7 +45,7 @@ impl<'a, K: PartialEq, V> Deref for ElemRef<'a, K, V> {
 }
 
 pub struct StripedHashMap<K: Hash + PartialEq, V> {
-    buckets: AtomicPtr<Vec<RwLock<Vec<(K, V)>>>>,
+    buckets: AtomicPtr<Vec<ProtectedBucket<K, V>>>,
     bucket_sizes: AtomicPtr<Arc<Vec<AtomicUsize>>>,
     max_avg_bucket_size: usize,
     resize_in_progress: AtomicBool,
@@ -61,7 +65,7 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
 
     pub fn with_num_buckets(num_buckets: usize) -> Self {
         const DEFAULT_MAX_AVG_BUCKET_SIZE: usize = 500;
-        let buckets: Vec<RwLock<Vec<(K, V)>>> =
+        let buckets: Vec<ProtectedBucket<K, V>> =
             (0..num_buckets).map(|_| RwLock::new(vec![])).collect();
 
         let wrapped_buckets = Box::new(buckets);
@@ -90,7 +94,7 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
         unsafe { (*self.buckets.load(Ordering::SeqCst)).len() }
     }
 
-    fn _get_read_bucket_by_key(&self, key: &K) -> RwLockReadGuard<Vec<(K, V)>> {
+    fn _get_read_bucket_by_key(&self, key: &K) -> RwLockReadGuard<Bucket<K, V>> {
         let hash = self.hash(key);
         loop {
             self._guard_resize();
@@ -108,7 +112,7 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
         }
     }
 
-    fn _get_write_bucket_by_key(&self, key: &K) -> (usize, RwLockWriteGuard<Vec<(K, V)>>) {
+    fn _get_write_bucket_by_key(&self, key: &K) -> (usize, RwLockWriteGuard<Bucket<K, V>>) {
         let hash = self.hash(key);
         loop {
             self._guard_resize();
@@ -156,7 +160,7 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
         let buckets = unsafe { Box::from_raw(self.buckets.load(Ordering::SeqCst)) };
         let old_len = buckets.len();
         let new_len = old_len * 2;
-        let mut new_buckets: Vec<Vec<(K, V)>> = (0..new_len).map(|_| Vec::new()).collect();
+        let mut new_buckets: Vec<Bucket<K, V>> = (0..new_len).map(|_| Vec::new()).collect();
 
         // flush out all pending readers/writers.
         // this allows us to safely move data from the old buckets to the new.
