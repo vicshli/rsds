@@ -1,4 +1,5 @@
 use crate::Map;
+use crossbeam::utils::CachePadded;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
@@ -7,7 +8,6 @@ use std::sync::Arc;
 use std::sync::RwLock;
 use std::sync::RwLockReadGuard;
 use std::sync::RwLockWriteGuard;
-use crossbeam::utils::CachePadded;
 
 type Bucket<K, V> = Vec<(K, V)>;
 
@@ -73,12 +73,14 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
         let bucket_ptr = Box::into_raw(wrapped_buckets);
 
         let bucket_sizes = Box::new(Arc::new(
-            (0..num_buckets).map(|_| CachePadded::new(AtomicUsize::new(0))).collect(),
+            (0..num_buckets)
+                .map(|_| CachePadded::new(AtomicUsize::new(0)))
+                .collect(),
         ));
         let bucket_sizes_ptr = Box::into_raw(bucket_sizes);
 
         StripedHashMap {
-            buckets:  CachePadded::new(AtomicPtr::new(bucket_ptr)),
+            buckets: CachePadded::new(AtomicPtr::new(bucket_ptr)),
             bucket_sizes: CachePadded::new(AtomicPtr::new(bucket_sizes_ptr)),
             max_avg_bucket_size: DEFAULT_MAX_AVG_BUCKET_SIZE,
             resize_in_progress: CachePadded::new(AtomicBool::new(false)),
