@@ -3,14 +3,13 @@ use crossbeam::utils::CachePadded;
 use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hash, Hasher};
 use std::ops::Deref;
-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 use std::sync::RwLock;
 use std::sync::RwLockReadGuard;
 use std::sync::RwLockWriteGuard;
 
 const DEFAULT_NUM_BUCKETS: usize = 10;
-const DEFAULT_MAX_AVG_BUCKET_SIZE: usize = 500;
+const DEFAULT_MAX_BUCKET_SIZE: usize = 500;
 
 type Bucket<K, V> = Vec<(K, V)>;
 
@@ -50,8 +49,7 @@ impl<'a, K: PartialEq, V> Deref for ElemRef<'a, K, V> {
 
 pub struct StripedHashMap<K: Hash + PartialEq, V, S = RandomState> {
     buckets: CachePadded<AtomicPtr<Vec<ProtectedBucket<K, V>>>>,
-    bucket_sizes: CachePadded<AtomicPtr<Arc<Vec<CachePadded<AtomicUsize>>>>>,
-    max_avg_bucket_size: usize,
+    max_bucket_size: usize,
     resize_in_progress: CachePadded<AtomicBool>,
     state: S,
 }
@@ -94,17 +92,9 @@ where
         let wrapped_buckets = Box::new(buckets);
         let bucket_ptr = Box::into_raw(wrapped_buckets);
 
-        let bucket_sizes = Box::new(Arc::new(
-            (0..num_buckets)
-                .map(|_| CachePadded::new(AtomicUsize::new(0)))
-                .collect(),
-        ));
-        let bucket_sizes_ptr = Box::into_raw(bucket_sizes);
-
         StripedHashMap {
             buckets: CachePadded::new(AtomicPtr::new(bucket_ptr)),
-            bucket_sizes: CachePadded::new(AtomicPtr::new(bucket_sizes_ptr)),
-            max_avg_bucket_size: DEFAULT_MAX_AVG_BUCKET_SIZE,
+            max_bucket_size: DEFAULT_MAX_BUCKET_SIZE,
             resize_in_progress: CachePadded::new(AtomicBool::new(false)),
             state: hasher,
         }
@@ -122,6 +112,7 @@ where
         hasher.finish() as usize
     }
 
+    #[allow(unused)]
     fn num_buckets(&self) -> usize {
         unsafe { (*self.buckets.load(Ordering::Acquire)).len() }
     }
@@ -162,32 +153,6 @@ where
         }
     }
 
-    fn _should_resize(&self) -> bool {
-        self._avg_bucket_size_relaxed() >= self.max_avg_bucket_size
-    }
-
-    fn _avg_bucket_size_relaxed(&self) -> usize {
-        self._avg_bucket_size(Ordering::Relaxed)
-    }
-
-    fn _avg_bucket_size(&self, ordering: Ordering) -> usize {
-        let bucket_sizes = unsafe { &*self.bucket_sizes.load(Ordering::Acquire) };
-        let bucket_sz_sum = bucket_sizes
-            .iter()
-            .fold(0, |acc, cur| acc + cur.load(ordering));
-        bucket_sz_sum / self.num_buckets()
-    }
-
-    fn _increment_bucket_size(&self, bucket_index: usize) {
-        let bucket_sizes = unsafe { &*self.bucket_sizes.load(Ordering::Acquire) };
-        bucket_sizes[bucket_index].fetch_add(1, Ordering::Relaxed);
-    }
-
-    fn _decrement_bucket_size(&self, bucket_index: usize) {
-        let bucket_sizes = unsafe { &*self.bucket_sizes.load(Ordering::Acquire) };
-        bucket_sizes[bucket_index].fetch_sub(1, Ordering::Relaxed);
-    }
-
     fn _resize(&self) {
         let buckets = unsafe { Box::from_raw(self.buckets.load(Ordering::Acquire)) };
         let old_len = buckets.len();
@@ -209,19 +174,10 @@ where
             }
         }
 
-        let new_bucket_sizes = new_buckets
-            .iter()
-            .map(|b| CachePadded::new(AtomicUsize::new(b.len())))
-            .collect();
-
         let new_buckets_locked = new_buckets.into_iter().map(RwLock::new).collect();
         let new_buckets_wrapped = Box::new(new_buckets_locked);
         let new_buckets_ptr = Box::into_raw(new_buckets_wrapped);
         self.buckets.swap(new_buckets_ptr, Ordering::Release);
-
-        let new_bucket_sizes_ptr = Box::into_raw(Box::new(Arc::new(new_bucket_sizes)));
-        self.bucket_sizes
-            .swap(new_bucket_sizes_ptr, Ordering::Release);
     }
 
     fn _guard_resize(&self) {
@@ -259,12 +215,11 @@ where
     }
 
     fn put(&self, key: K, value: V) {
-        let (bucket_idx, mut bucket) = self._get_write_bucket_by_key(&key);
+        let (_, mut bucket) = self._get_write_bucket_by_key(&key);
         bucket.push((key, value));
-        self._increment_bucket_size(bucket_idx);
 
         #[allow(clippy::collapsible_if)]
-        if self._should_resize() {
+        if bucket.len() > self.max_bucket_size {
             if self
                 .resize_in_progress
                 .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
@@ -278,12 +233,11 @@ where
     }
 
     fn remove(&self, key: &K) -> bool {
-        let (bucket_idx, mut bucket) = self._get_write_bucket_by_key(key);
+        let (_, mut bucket) = self._get_write_bucket_by_key(key);
         let itr = bucket.iter();
         for (i, entry) in itr.enumerate() {
             if entry.0 == *key {
                 bucket.remove(i);
-                self._decrement_bucket_size(bucket_idx);
                 return true;
             }
         }
