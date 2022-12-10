@@ -123,14 +123,14 @@ where
     }
 
     fn num_buckets(&self) -> usize {
-        unsafe { (*self.buckets.load(Ordering::SeqCst)).len() }
+        unsafe { (*self.buckets.load(Ordering::Acquire)).len() }
     }
 
     fn _get_read_bucket_by_key(&self, key: &K) -> RwLockReadGuard<Bucket<K, V>> {
         let hash = self.hash(key);
         loop {
             self._guard_resize();
-            let buckets = unsafe { &*self.buckets.load(Ordering::SeqCst) };
+            let buckets = unsafe { &*self.buckets.load(Ordering::Acquire) };
             if self.resize_in_progress.load(Ordering::SeqCst) {
                 continue;
             }
@@ -148,7 +148,7 @@ where
         let hash = self.hash(key);
         loop {
             self._guard_resize();
-            let buckets = unsafe { &*self.buckets.load(Ordering::SeqCst) };
+            let buckets = unsafe { &*self.buckets.load(Ordering::Acquire) };
             if self.resize_in_progress.load(Ordering::SeqCst) {
                 continue;
             }
@@ -171,7 +171,7 @@ where
     }
 
     fn _avg_bucket_size(&self, ordering: Ordering) -> usize {
-        let bucket_sizes = unsafe { &*self.bucket_sizes.load(Ordering::SeqCst) };
+        let bucket_sizes = unsafe { &*self.bucket_sizes.load(Ordering::Acquire) };
         let bucket_sz_sum = bucket_sizes
             .iter()
             .fold(0, |acc, cur| acc + cur.load(ordering));
@@ -179,17 +179,17 @@ where
     }
 
     fn _increment_bucket_size(&self, bucket_index: usize) {
-        let bucket_sizes = unsafe { &*self.bucket_sizes.load(Ordering::SeqCst) };
+        let bucket_sizes = unsafe { &*self.bucket_sizes.load(Ordering::Acquire) };
         bucket_sizes[bucket_index].fetch_add(1, Ordering::Relaxed);
     }
 
     fn _decrement_bucket_size(&self, bucket_index: usize) {
-        let bucket_sizes = unsafe { &*self.bucket_sizes.load(Ordering::SeqCst) };
+        let bucket_sizes = unsafe { &*self.bucket_sizes.load(Ordering::Acquire) };
         bucket_sizes[bucket_index].fetch_sub(1, Ordering::Relaxed);
     }
 
     fn _resize(&self) {
-        let buckets = unsafe { Box::from_raw(self.buckets.load(Ordering::SeqCst)) };
+        let buckets = unsafe { Box::from_raw(self.buckets.load(Ordering::Acquire)) };
         let old_len = buckets.len();
         let new_len = old_len * 2;
         let mut new_buckets: Vec<Bucket<K, V>> = (0..new_len).map(|_| Vec::new()).collect();
@@ -217,15 +217,15 @@ where
         let new_buckets_locked = new_buckets.into_iter().map(RwLock::new).collect();
         let new_buckets_wrapped = Box::new(new_buckets_locked);
         let new_buckets_ptr = Box::into_raw(new_buckets_wrapped);
-        self.buckets.swap(new_buckets_ptr, Ordering::SeqCst);
+        self.buckets.swap(new_buckets_ptr, Ordering::Release);
 
         let new_bucket_sizes_ptr = Box::into_raw(Box::new(Arc::new(new_bucket_sizes)));
         self.bucket_sizes
-            .swap(new_bucket_sizes_ptr, Ordering::SeqCst);
+            .swap(new_bucket_sizes_ptr, Ordering::Release);
     }
 
     fn _guard_resize(&self) {
-        while self.resize_in_progress.load(Ordering::SeqCst) {
+        while self.resize_in_progress.load(Ordering::Acquire) {
             std::hint::spin_loop()
         }
     }
@@ -272,7 +272,7 @@ where
             {
                 drop(bucket);
                 self._resize();
-                self.resize_in_progress.swap(false, Ordering::SeqCst);
+                self.resize_in_progress.swap(false, Ordering::Release);
             }
         }
     }

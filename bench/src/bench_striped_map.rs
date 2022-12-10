@@ -164,7 +164,7 @@ fn bench_multi_threaded<
 }
 
 fn main() {
-    let input = make_random_string_pairs(100_000);
+    let input = make_random_string_pairs(1_000_000);
     bench_single_threaded(&input);
     bench_multi_threaded(10, &input);
 }
