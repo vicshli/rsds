@@ -8,8 +8,8 @@ use std::sync::RwLock;
 use std::sync::RwLockReadGuard;
 use std::sync::RwLockWriteGuard;
 
-const DEFAULT_NUM_BUCKETS: usize = 10;
-const DEFAULT_MAX_BUCKET_SIZE: usize = 500;
+const DEFAULT_NUM_BUCKETS: usize = 1 << 12;
+const DEFAULT_MAX_BUCKET_SIZE: usize = 10;
 
 type Bucket<K, V> = Vec<(K, V)>;
 
@@ -71,7 +71,8 @@ where
         StripedHashMap::build(DEFAULT_NUM_BUCKETS, RandomState::default())
     }
 
-    pub fn with_num_buckets(num_buckets: usize) -> Self {
+    pub fn with_capacity(capacity: usize) -> Self {
+        let num_buckets = (capacity / DEFAULT_MAX_BUCKET_SIZE) * 2;
         StripedHashMap::build(num_buckets, RandomState::default())
     }
 }

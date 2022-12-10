@@ -10,8 +10,6 @@ use std::sync::Barrier;
 use std::thread;
 use std::time::Instant;
 
-const NUM_BUCKETS: usize = 100;
-
 macro_rules! bench {
     ($name: expr, $body: expr) => {
         let now = Instant::now();
@@ -66,7 +64,7 @@ fn bench_single_threaded<K: Hash + PartialEq + Eq + Clone, V: Clone>(src: &[(K, 
 
     let map_data = src.to_owned();
     bench!("StripedHashMap", {
-        let map = StripedHashMap::with_num_buckets(NUM_BUCKETS);
+        let map = StripedHashMap::with_capacity(src.len());
         for (key, val) in map_data {
             map.put(key, val);
         }
@@ -92,7 +90,7 @@ fn bench_multi_threaded<
 
     let map_data = src.to_owned();
     let thread_data = partition_data(map_data, num_threads);
-    let map = Arc::new(StripedHashMap::with_num_buckets(NUM_BUCKETS));
+    let map = Arc::new(StripedHashMap::with_capacity(src.len()));
     let start_barr = Arc::new(Barrier::new(num_threads + 1));
     let end_barr = Arc::new(Barrier::new(num_threads + 1));
 
