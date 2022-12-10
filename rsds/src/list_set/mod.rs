@@ -22,17 +22,19 @@ struct Node<T> {
     node: MaybeUninit<NodeInner<T>>,
 }
 
-impl<T> Node<T> {
+impl<T> Node<T>
+where
+    T: PartialEq + Eq,
+{
     fn add(&mut self, elem: T) {
-        // SAFETY: we guarantee node to be initialized except for during the
-        // Tail -> Elem transition.
-        let node = unsafe { self.node.assume_init_mut() };
+        let node = self.get_node_mut();
         match node {
             NodeInner::Tail(_) => {
-                let m = MaybeUninit::uninit();
                 // SAFETY: we only swap init node with uninit memory, so the
-                // node being swapped out is initialized
-                let node = unsafe { std::mem::replace(&mut self.node, m).assume_init() };
+                // node being swapped out is initialized.
+                let node = unsafe {
+                    std::mem::replace(&mut self.node, MaybeUninit::uninit()).assume_init()
+                };
                 let new_node = match node {
                     NodeInner::Tail(my_elem) => {
                         NodeInner::Elem((my_elem, Box::new(NodeInner::Tail(elem).into())))
@@ -41,30 +43,54 @@ impl<T> Node<T> {
                 };
                 self.node.write(new_node);
             }
-            NodeInner::Elem(node) => {
-                node.1.add(elem);
+            NodeInner::Elem((_, rest)) => {
+                rest.add(elem);
             }
         }
     }
 
+    fn find(&self, target: &T) -> bool {
+        let node = self.get_node_ref();
+        match node {
+            NodeInner::Elem((curr, rest)) => curr == target || rest.find(target),
+            NodeInner::Tail(curr) => curr == target,
+        }
+    }
+
     fn len(&self) -> usize {
-        // SAFETY: we guarantee node to be initialized except for during the
-        // Tail -> Elem transition.
-        let node = unsafe { self.node.assume_init_ref() };
+        let node = self.get_node_ref();
         match node {
             NodeInner::Tail(_) => 1,
             NodeInner::Elem(n) => 1 + n.1.len(),
         }
     }
+
+    fn get_node_mut(&mut self) -> &mut NodeInner<T> {
+        // SAFETY: we guarantee node to be initialized except for during the
+        // Tail -> Elem transition.
+        unsafe { self.node.assume_init_mut() }
+    }
+    fn get_node_ref(&self) -> &NodeInner<T> {
+        // SAFETY: we guarantee node to be initialized except for during the
+        // Tail -> Elem transition.
+        unsafe { self.node.assume_init_ref() }
+    }
 }
 
-impl<T> LinkedList<T> {
+impl<T> LinkedList<T>
+where
+    T: PartialEq + Eq,
+{
     pub fn add(&mut self, elem: T) {
         if self.head.is_some() {
             self.head.as_mut().unwrap().add(elem);
         } else {
             self.head = Some(NodeInner::Tail(elem).into());
         }
+    }
+
+    pub fn find(&self, target: &T) -> bool {
+        self.head.as_ref().map(|h| h.find(target)).unwrap_or(false)
     }
 
     pub fn len(&self) -> usize {
@@ -82,6 +108,7 @@ impl<T> LinkedList<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use quickcheck_macros::quickcheck;
 
     #[test]
     fn linked_list() {
@@ -91,5 +118,18 @@ mod tests {
             list.add(i);
         }
         assert!(list.len() == 100);
+    }
+
+    #[quickcheck]
+    fn linked_list_search_existing(elem: usize) -> bool {
+        let mut list = LinkedList::default();
+        list.add(elem);
+        list.find(&elem)
+    }
+
+    #[quickcheck]
+    fn linked_list_search_nonexisting(elem: usize) -> bool {
+        let list = LinkedList::default();
+        !list.find(&elem)
     }
 }
