@@ -56,7 +56,10 @@ pub struct StripedHashMap<K: Hash + PartialEq, V, S = RandomState> {
     state: S,
 }
 
-impl<K: Hash + PartialEq, V> Default for StripedHashMap<K, V, RandomState> {
+impl<K, V> Default for StripedHashMap<K, V, RandomState>
+where
+    K: Hash + PartialEq,
+{
     fn default() -> Self {
         Self::new()
     }
@@ -228,7 +231,10 @@ where
     }
 }
 
-impl<K: Hash + PartialEq, V, S> Drop for StripedHashMap<K, V, S> {
+impl<K, V, S> Drop for StripedHashMap<K, V, S>
+where
+    K: Hash + PartialEq,
+{
     fn drop(&mut self) {
         let buckets_ptr = self.buckets.load(Ordering::SeqCst);
         let buckets = unsafe { Box::from_raw(buckets_ptr) };
