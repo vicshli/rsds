@@ -1,13 +1,16 @@
 use crate::Map;
 use crossbeam::utils::CachePadded;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use std::collections::hash_map::RandomState;
+use std::hash::{BuildHasher, Hash, Hasher};
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::sync::RwLockReadGuard;
 use std::sync::RwLockWriteGuard;
+
+const DEFAULT_NUM_BUCKETS: usize = 10;
+const DEFAULT_MAX_AVG_BUCKET_SIZE: usize = 500;
 
 type Bucket<K, V> = Vec<(K, V)>;
 
@@ -45,27 +48,43 @@ impl<'a, K: PartialEq, V> Deref for ElemRef<'a, K, V> {
     }
 }
 
-pub struct StripedHashMap<K: Hash + PartialEq, V> {
+pub struct StripedHashMap<K: Hash + PartialEq, V, S = RandomState> {
     buckets: CachePadded<AtomicPtr<Vec<ProtectedBucket<K, V>>>>,
     bucket_sizes: CachePadded<AtomicPtr<Arc<Vec<CachePadded<AtomicUsize>>>>>,
     max_avg_bucket_size: usize,
     resize_in_progress: CachePadded<AtomicBool>,
+    state: S,
 }
 
-impl<K: Hash + PartialEq, V> Default for StripedHashMap<K, V> {
+impl<K: Hash + PartialEq, V> Default for StripedHashMap<K, V, RandomState> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
+impl<K, V> StripedHashMap<K, V, RandomState>
+where
+    K: Hash + PartialEq,
+{
     pub fn new() -> Self {
-        const DEFAULT_NUM_BUCKETS: usize = 10;
-        StripedHashMap::with_num_buckets(DEFAULT_NUM_BUCKETS)
+        StripedHashMap::build(DEFAULT_NUM_BUCKETS, RandomState::default())
     }
 
     pub fn with_num_buckets(num_buckets: usize) -> Self {
-        const DEFAULT_MAX_AVG_BUCKET_SIZE: usize = 500;
+        StripedHashMap::build(num_buckets, RandomState::default())
+    }
+}
+
+impl<K, V, S> StripedHashMap<K, V, S>
+where
+    K: Hash + PartialEq,
+    S: BuildHasher,
+{
+    pub fn with_hasher(hasher: S) -> Self {
+        StripedHashMap::build(DEFAULT_NUM_BUCKETS, hasher)
+    }
+
+    fn build(num_buckets: usize, hasher: S) -> Self {
         let buckets: Vec<ProtectedBucket<K, V>> =
             (0..num_buckets).map(|_| RwLock::new(vec![])).collect();
 
@@ -84,11 +103,18 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
             bucket_sizes: CachePadded::new(AtomicPtr::new(bucket_sizes_ptr)),
             max_avg_bucket_size: DEFAULT_MAX_AVG_BUCKET_SIZE,
             resize_in_progress: CachePadded::new(AtomicBool::new(false)),
+            state: hasher,
         }
     }
+}
 
+impl<K, V, S> StripedHashMap<K, V, S>
+where
+    K: Hash + PartialEq,
+    S: BuildHasher,
+{
     fn hash(&self, key: &K) -> usize {
-        let mut hasher = DefaultHasher::new();
+        let mut hasher = self.state.build_hasher();
         key.hash(&mut hasher);
         hasher.finish() as usize
     }
@@ -202,7 +228,7 @@ impl<K: Hash + PartialEq, V> StripedHashMap<K, V> {
     }
 }
 
-impl<K: Hash + PartialEq, V> Drop for StripedHashMap<K, V> {
+impl<K: Hash + PartialEq, V, S> Drop for StripedHashMap<K, V, S> {
     fn drop(&mut self) {
         let buckets_ptr = self.buckets.load(Ordering::SeqCst);
         let buckets = unsafe { Box::from_raw(buckets_ptr) };
@@ -210,7 +236,11 @@ impl<K: Hash + PartialEq, V> Drop for StripedHashMap<K, V> {
     }
 }
 
-impl<'a, K: Hash + PartialEq, V> Map<'a, K, V, ElemRef<'a, K, V>> for StripedHashMap<K, V> {
+impl<'a, K, V, S> Map<'a, K, V, ElemRef<'a, K, V>> for StripedHashMap<K, V, S>
+where
+    K: Hash + PartialEq,
+    S: BuildHasher,
+{
     fn get(&'a self, key: &K) -> Option<ElemRef<'a, K, V>> {
         let searcher = MaybeElemRef {
             guard: self._get_read_bucket_by_key(key),
