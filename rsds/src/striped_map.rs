@@ -262,6 +262,8 @@ where
         let (bucket_idx, mut bucket) = self._get_write_bucket_by_key(&key);
         bucket.push((key, value));
         self._increment_bucket_size(bucket_idx);
+
+        #[allow(clippy::collapsible_if)]
         if self._should_resize() {
             if self
                 .resize_in_progress

@@ -61,10 +61,10 @@ fn partition_data<T>(data: Vec<T>, num_partitions: usize) -> Vec<Vec<T>> {
     }
 }
 
-fn bench_single_threaded<K: Hash + PartialEq + Eq + Clone, V: Clone>(src: &Vec<(K, V)>) {
+fn bench_single_threaded<K: Hash + PartialEq + Eq + Clone, V: Clone>(src: &[(K, V)]) {
     println!("bench single threaded");
 
-    let map_data = src.clone();
+    let map_data = src.to_owned();
     bench!("StripedHashMap", {
         let map = StripedHashMap::with_num_buckets(NUM_BUCKETS);
         for (key, val) in map_data {
@@ -72,7 +72,7 @@ fn bench_single_threaded<K: Hash + PartialEq + Eq + Clone, V: Clone>(src: &Vec<(
         }
     });
 
-    let dmap_data = src.clone();
+    let dmap_data = src.to_owned();
     bench!("DashMap", {
         let map = DashMap::new();
         for (key, val) in dmap_data {
@@ -86,11 +86,11 @@ fn bench_multi_threaded<
     V: Display + Debug + PartialEq + Eq + Clone + Send + Sync + 'static,
 >(
     num_threads: usize,
-    src: &Vec<(K, V)>,
+    src: &[(K, V)],
 ) {
     println!("bench multi threaded");
 
-    let map_data = src.clone();
+    let map_data = src.to_owned();
     let thread_data = partition_data(map_data, num_threads);
     let map = Arc::new(StripedHashMap::with_num_buckets(NUM_BUCKETS));
     let start_barr = Arc::new(Barrier::new(num_threads + 1));
@@ -126,7 +126,7 @@ fn bench_multi_threaded<
         h.join().unwrap();
     }
 
-    let dmap_data = src.clone();
+    let dmap_data = src.to_owned();
     let thread_data = partition_data(dmap_data, num_threads);
     let dmap = Arc::new(DashMap::new());
     let start_barr = Arc::new(Barrier::new(num_threads + 1));
@@ -164,7 +164,7 @@ fn bench_multi_threaded<
 }
 
 fn main() {
-    let input = make_random_string_pairs(1_000_000);
+    let input = make_random_string_pairs(100_000);
     bench_single_threaded(&input);
     bench_multi_threaded(10, &input);
 }
