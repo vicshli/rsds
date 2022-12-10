@@ -122,12 +122,12 @@ where
         loop {
             self._guard_resize();
             let buckets = unsafe { &*self.buckets.load(Ordering::Acquire) };
-            if self.resize_in_progress.load(Ordering::SeqCst) {
+            if self.resize_in_progress.load(Ordering::Acquire) {
                 continue;
             }
             let bucket_index = hash % buckets.len();
             let r = buckets[bucket_index].read().unwrap();
-            if self.resize_in_progress.load(Ordering::SeqCst) {
+            if self.resize_in_progress.load(Ordering::Acquire) {
                 drop(r);
                 continue;
             }
@@ -140,12 +140,12 @@ where
         loop {
             self._guard_resize();
             let buckets = unsafe { &*self.buckets.load(Ordering::Acquire) };
-            if self.resize_in_progress.load(Ordering::SeqCst) {
+            if self.resize_in_progress.load(Ordering::Acquire) {
                 continue;
             }
             let bucket_index = hash % buckets.len();
             let w = buckets[bucket_index].write().unwrap();
-            if self.resize_in_progress.load(Ordering::SeqCst) {
+            if self.resize_in_progress.load(Ordering::Acquire) {
                 drop(w);
                 continue;
             }
@@ -192,7 +192,7 @@ where
     K: Hash + PartialEq,
 {
     fn drop(&mut self) {
-        let buckets_ptr = self.buckets.load(Ordering::SeqCst);
+        let buckets_ptr = self.buckets.load(Ordering::Acquire);
         let buckets = unsafe { Box::from_raw(buckets_ptr) };
         drop(buckets);
     }
