@@ -1,7 +1,7 @@
 use std::mem::MaybeUninit;
 
 #[derive(Default)]
-pub struct LinkedList<T> {
+pub struct List<T> {
     head: Option<Node<T>>,
 }
 
@@ -77,7 +77,7 @@ where
     }
 }
 
-impl<T> LinkedList<T>
+impl<T> List<T>
 where
     T: PartialEq + Eq,
 {
@@ -112,7 +112,7 @@ mod tests {
 
     #[test]
     fn linked_list() {
-        let mut list = LinkedList::default();
+        let mut list = List::default();
         assert!(list.is_empty());
         for i in 0..100 {
             list.add(i);
@@ -122,14 +122,14 @@ mod tests {
 
     #[quickcheck]
     fn linked_list_search_existing(elem: usize) -> bool {
-        let mut list = LinkedList::default();
+        let mut list = List::default();
         list.add(elem);
         list.find(&elem)
     }
 
     #[quickcheck]
     fn linked_list_search_nonexisting(elem: usize) -> bool {
-        let list = LinkedList::default();
+        let list = List::default();
         !list.find(&elem)
     }
 }
