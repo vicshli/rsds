@@ -1,4 +1,4 @@
-use crate::Map;
+use crate::map::Map;
 use crossbeam::utils::CachePadded;
 use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hash, Hasher};

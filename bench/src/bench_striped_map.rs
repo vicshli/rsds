@@ -2,7 +2,7 @@ use std::hash::Hash;
 
 use dashmap::DashMap;
 use rand::{distributions::Alphanumeric, Rng};
-use rsds::{Map, StripedHashMap};
+use rsds::map::{Map, StripedHashMap};
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::sync::Arc;
