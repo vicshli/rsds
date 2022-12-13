@@ -21,12 +21,25 @@ impl<T> From<NodeInner<T, OrderedNode<T>>> for OrderedNode<T> {
     }
 }
 
+impl<T, N> NodeInner<T, N> {
+    fn elem(&self) -> &T {
+        match self {
+            NodeInner::Elem((e, _)) => e,
+            NodeInner::Tail(e) => e,
+        }
+    }
+}
+
 trait ListNode {
     type Elem;
 
     fn new_tail(elem: Self::Elem) -> Self;
 
     fn new_intermediate(elem: Self::Elem, rest: Self) -> Self;
+
+    fn get(&self) -> &Self::Elem;
+
+    fn next(&self) -> Option<&Self>;
 
     fn add(&mut self, elem: Self::Elem);
 
@@ -55,6 +68,18 @@ where
 
     fn new_intermediate(elem: Self::Elem, rest: Self) -> Self {
         NodeInner::Elem((elem, Box::new(rest))).into()
+    }
+
+    fn get(&self) -> &Self::Elem {
+        self.get_node_ref().elem()
+    }
+
+    fn next(&self) -> Option<&Self> {
+        let node = self.get_node_ref();
+        match node {
+            NodeInner::Tail(_) => None,
+            NodeInner::Elem((_, rest)) => Some(rest.as_ref()),
+        }
     }
 
     fn add(&mut self, elem: T) {
@@ -128,6 +153,18 @@ where
         NodeInner::Elem((elem, Box::new(rest))).into()
     }
 
+    fn get(&self) -> &Self::Elem {
+        self.get_node_ref().elem()
+    }
+
+    fn next(&self) -> Option<&Self> {
+        let node = self.get_node_ref();
+        match node {
+            NodeInner::Tail(_) => None,
+            NodeInner::Elem((_, rest)) => Some(rest.as_ref()),
+        }
+    }
+
     fn add(&mut self, elem: T) {
         let node = self.get_node_mut();
         match node {
@@ -182,13 +219,22 @@ where
 
     fn _add_after_tail(&mut self, elem: T) {
         assert!(matches!(self.get_node_ref(), NodeInner::Tail(_)));
-        // SAFETY: this node is guaranteed to be initialized except
-        // for the following section, where it is moved to after elem.
-        let tail_node =
-            unsafe { std::mem::replace(&mut self.node, MaybeUninit::uninit()).assume_init() };
-        let curr_node = NodeInner::Elem((elem, Box::new(tail_node.into())));
-        // Inserted `elem` before tail.
-        // The list becomes: ... -> elem -> tail
+
+        let old_tail = {
+            // SAFETY: this node is guaranteed to be initialized except
+            // for the following section, where it is moved to after elem.
+            let tail_node =
+                unsafe { std::mem::replace(&mut self.node, MaybeUninit::uninit()).assume_init() };
+
+            match tail_node {
+                NodeInner::Tail(e) => e,
+                _ => unreachable!(),
+            }
+        };
+
+        let curr_node = NodeInner::Elem((old_tail, Box::new(NodeInner::Tail(elem).into())));
+
+        // The list becomes: ... -> old_tail -> elem
         self.node.write(curr_node);
     }
 
@@ -199,6 +245,64 @@ where
     fn get_node_ref(&self) -> &NodeInner<T, OrderedNode<T>> {
         // SAFETY: we guarantee node to be initialized except for node swapping
         unsafe { self.node.assume_init_ref() }
+    }
+}
+
+struct ListIterInner<'a, N> {
+    curr: Option<&'a N>,
+}
+
+impl<'a, N> Iterator for ListIterInner<'a, N>
+where
+    N: ListNode,
+{
+    type Item = &'a N::Elem;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(curr) = self.curr {
+            let next = curr.get();
+            self.curr = curr.next();
+            return Some(next);
+        }
+        None
+    }
+}
+
+pub struct ListIter<'a, T>(ListIterInner<'a, Node<T>>);
+
+impl<'a, T> Iterator for ListIter<'a, T>
+where
+    T: PartialEq + Eq,
+{
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+}
+
+impl<'a, T> From<ListIterInner<'a, Node<T>>> for ListIter<'a, T> {
+    fn from(iter: ListIterInner<'a, Node<T>>) -> Self {
+        ListIter(iter)
+    }
+}
+
+pub struct OrderedListIter<'a, T>(ListIterInner<'a, OrderedNode<T>>);
+
+impl<'a, T> Iterator for OrderedListIter<'a, T>
+where
+    T: PartialOrd + PartialEq + Eq,
+{
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+}
+
+impl<'a, T> From<ListIterInner<'a, OrderedNode<T>>> for OrderedListIter<'a, T> {
+    fn from(iter: ListIterInner<'a, OrderedNode<T>>) -> Self {
+        OrderedListIter(iter)
     }
 }
 
@@ -226,6 +330,13 @@ where
 
     pub fn find(&self, target: &N::Elem) -> bool {
         self.head.as_ref().map(|h| h.find(target)).unwrap_or(false)
+    }
+
+    pub fn iter(&self) -> ListIterInner<'_, N> {
+        match self.head {
+            Some(ref h) => ListIterInner { curr: Some(h) },
+            None => ListIterInner { curr: None },
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -257,6 +368,10 @@ where
         self.inner.find(target)
     }
 
+    pub fn iter(&self) -> ListIter<'_, T> {
+        self.inner.iter().into()
+    }
+
     pub fn len(&self) -> usize {
         self.inner.len()
     }
@@ -281,6 +396,10 @@ where
 
     pub fn find(&self, target: &T) -> bool {
         self.inner.find(target)
+    }
+
+    pub fn iter(&self) -> OrderedListIter<'_, T> {
+        self.inner.iter().into()
     }
 
     pub fn len(&self) -> usize {
@@ -318,5 +437,24 @@ mod tests {
     fn linked_list_search_nonexisting(elem: usize) -> bool {
         let list = List::default();
         !list.find(&elem)
+    }
+
+    #[test]
+    fn ordered_list() {
+        let expected = (0..100).collect::<Vec<_>>();
+
+        let mut list = OrderedList::<usize>::default();
+        for i in 0..100 {
+            list.add(i);
+        }
+        let elems: Vec<_> = list.iter().copied().collect();
+        assert_eq!(elems, expected);
+
+        let mut rev_list = OrderedList::<usize>::default();
+        for i in (0..100).rev() {
+            rev_list.add(i);
+        }
+        let elems: Vec<_> = rev_list.iter().copied().collect();
+        assert_eq!(elems, expected);
     }
 }
