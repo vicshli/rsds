@@ -41,6 +41,8 @@ trait ListNode {
 
     fn next(&self) -> Option<&Self>;
 
+    fn next_mut(&mut self) -> Option<&mut Self>;
+
     fn add(&mut self, elem: Self::Elem);
 
     fn find(&self, target: &Self::Elem) -> bool;
@@ -79,6 +81,14 @@ where
         match node {
             NodeInner::Tail(_) => None,
             NodeInner::Elem((_, rest)) => Some(rest.as_ref()),
+        }
+    }
+
+    fn next_mut(&mut self) -> Option<&mut Self> {
+        let node = self.get_node_mut();
+        match node {
+            NodeInner::Tail(_) => None,
+            NodeInner::Elem((_, rest)) => Some(rest.as_mut()),
         }
     }
 
@@ -162,6 +172,14 @@ where
         match node {
             NodeInner::Tail(_) => None,
             NodeInner::Elem((_, rest)) => Some(rest.as_ref()),
+        }
+    }
+
+    fn next_mut(&mut self) -> Option<&mut Self> {
+        let node = self.get_node_mut();
+        match node {
+            NodeInner::Tail(_) => None,
+            NodeInner::Elem((_, rest)) => Some(rest.as_mut()),
         }
     }
 
@@ -323,6 +341,34 @@ where
     N: ListNode,
 {
     pub fn add(&mut self, elem: N::Elem) {
+        if self.head.is_none() {
+            self.head = Some(N::new_tail(elem));
+        } else {
+            let mut curr = self.head.as_mut().unwrap();
+            loop {
+                let curr_ptr: *mut N = curr;
+                // SAFETY: this is to enable reborrowing `curr` in the None
+                // block.
+                //
+                // Rust wants to prevent two mutable borrows because
+                // `node.next_mut()` returns an optional mut reference. Despite
+                // being in the None block (meaning no mut ref was formed),
+                // Rust assumes the first mutable borrow is still alive and
+                // prevents forming another mut reference. We work around this
+                // by using unsafe to not tell Rust about the first mut borrow.
+                match unsafe { &mut *curr_ptr }.next_mut() {
+                    Some(node) => curr = node,
+                    None => {
+                        curr.add(elem);
+                        break;
+                    }
+                }
+            }
+        }
+        self.len += 1;
+    }
+
+    pub fn add_ordered(&mut self, elem: N::Elem) {
         if self.head.is_some() {
             self.head.as_mut().unwrap().add(elem);
         } else {
@@ -391,7 +437,7 @@ where
     T: PartialOrd + PartialEq + Eq,
 {
     pub fn add(&mut self, elem: T) {
-        self.inner.add(elem)
+        self.inner.add_ordered(elem)
     }
 
     pub fn find(&self, target: &T) -> bool {
@@ -418,12 +464,15 @@ mod tests {
 
     #[test]
     fn linked_list() {
+        let len = 10_000;
         let mut list = List::default();
         assert!(list.is_empty());
-        for i in 0..100 {
+        for i in 0..len {
             list.add(i);
         }
-        assert!(list.len() == 100);
+        assert!(list.len() == len);
+        let elems: Vec<_> = list.iter().copied().collect();
+        assert_eq!(elems, (0..len).collect::<Vec<_>>());
     }
 
     #[quickcheck]
