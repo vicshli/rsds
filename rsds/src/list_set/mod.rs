@@ -360,11 +360,38 @@ where
         self.len += 1;
     }
 
-    pub fn add_ordered(&mut self, elem: N::Elem) {
-        if self.head.is_some() {
-            self.head.as_mut().unwrap().add(elem);
-        } else {
+    pub fn add_ordered(&mut self, elem: N::Elem)
+    where
+        N::Elem: PartialOrd,
+    {
+        if self.head.is_none() {
             self.head = Some(N::new_tail(elem));
+            self.tail = Some(self.head.as_mut().unwrap());
+        } else {
+            let mut curr = self.head.as_mut().unwrap();
+            loop {
+                // SAFTETY: allow forming two mutable borrows (one in
+                // `c.next_mut()`, and another in `curr.add(...)`).
+                //
+                // This is Ok because `curr.add(...)` would not invalidate the
+                // reference returned by `c.next_mut()`. Plus, if `curr.add(..)`
+                // were invoked, the return value of `c.next_mut()` isn't used.
+                let c = unsafe { &mut *(curr as *mut N) };
+                match c.next_mut() {
+                    Some(next) => {
+                        if *next.get() > elem {
+                            curr.add(elem);
+                            break;
+                        } else {
+                            curr = next;
+                        }
+                    }
+                    None => {
+                        curr.add(elem);
+                        break;
+                    }
+                }
+            }
         }
         self.len += 1;
     }
@@ -482,7 +509,7 @@ mod tests {
     #[test]
     fn ordered_list() {
         let min = 0;
-        let max = 1024;
+        let max = 10_000;
 
         let mut list = OrderedList::<usize>::default();
         for i in min..max {
