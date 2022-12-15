@@ -327,12 +327,17 @@ impl<'a, T> From<ListIterInner<'a, OrderedNode<T>>> for OrderedListIter<'a, T> {
 
 struct ListInner<N> {
     head: Option<N>,
+    tail: Option<*mut N>,
     len: usize,
 }
 
 impl<N> Default for ListInner<N> {
     fn default() -> Self {
-        Self { head: None, len: 0 }
+        Self {
+            head: None,
+            tail: None,
+            len: 0,
+        }
     }
 }
 
@@ -343,27 +348,14 @@ where
     pub fn add(&mut self, elem: N::Elem) {
         if self.head.is_none() {
             self.head = Some(N::new_tail(elem));
+            self.tail = Some(self.head.as_mut().unwrap());
         } else {
-            let mut curr = self.head.as_mut().unwrap();
-            loop {
-                let curr_ptr: *mut N = curr;
-                // SAFETY: this is to enable reborrowing `curr` in the None
-                // block.
-                //
-                // Rust wants to prevent two mutable borrows because
-                // `node.next_mut()` returns an optional mut reference. Despite
-                // being in the None block (meaning no mut ref was formed),
-                // Rust assumes the first mutable borrow is still alive and
-                // prevents forming another mut reference. We work around this
-                // by using unsafe to not tell Rust about the first mut borrow.
-                match unsafe { &mut *curr_ptr }.next_mut() {
-                    Some(node) => curr = node,
-                    None => {
-                        curr.add(elem);
-                        break;
-                    }
-                }
-            }
+            // SAFETY: `tail` is guaranteed to be pointing to the list tail
+            // and is guaranteed to be alive.
+            let old_tail = unsafe { &mut *self.tail.unwrap() };
+            old_tail.add(elem);
+            let new_tail: *mut N = old_tail.next_mut().unwrap();
+            self.tail = Some(new_tail);
         }
         self.len += 1;
     }
@@ -464,15 +456,14 @@ mod tests {
 
     #[test]
     fn linked_list() {
-        let len = 10_000;
+        let len = 5_000_000;
         let mut list = List::default();
         assert!(list.is_empty());
         for i in 0..len {
             list.add(i);
         }
         assert!(list.len() == len);
-        let elems: Vec<_> = list.iter().copied().collect();
-        assert_eq!(elems, (0..len).collect::<Vec<_>>());
+        assert!(list.iter().copied().eq(0..len));
     }
 
     #[quickcheck]
