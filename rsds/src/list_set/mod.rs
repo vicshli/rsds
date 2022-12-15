@@ -299,6 +299,7 @@ where
         self.0.next()
     }
 }
+impl<'a, T> ExactSizeIterator for OrderedListIter<'a, T> where T: PartialOrd + PartialEq + Eq {}
 
 impl<'a, T> From<ListIterInner<'a, OrderedNode<T>>> for OrderedListIter<'a, T> {
     fn from(iter: ListIterInner<'a, OrderedNode<T>>) -> Self {
@@ -308,11 +309,12 @@ impl<'a, T> From<ListIterInner<'a, OrderedNode<T>>> for OrderedListIter<'a, T> {
 
 struct ListInner<N> {
     head: Option<N>,
+    len: usize,
 }
 
 impl<N> Default for ListInner<N> {
     fn default() -> Self {
-        Self { head: None }
+        Self { head: None, len: 0 }
     }
 }
 
@@ -326,6 +328,7 @@ where
         } else {
             self.head = Some(N::new_tail(elem));
         }
+        self.len += 1;
     }
 
     pub fn find(&self, target: &N::Elem) -> bool {
@@ -340,10 +343,7 @@ where
     }
 
     pub fn len(&self) -> usize {
-        match &self.head {
-            Some(node) => node.len(),
-            None => 0,
-        }
+        self.len
     }
 
     pub fn is_empty(&self) -> bool {
