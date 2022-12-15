@@ -441,19 +441,23 @@ mod tests {
 
     #[test]
     fn ordered_list() {
-        let expected = (0..100).collect::<Vec<_>>();
+        let min = 0;
+        let max = 1024;
+        let expected = (min..max).collect::<Vec<_>>();
 
         let mut list = OrderedList::<usize>::default();
-        for i in 0..100 {
+        for i in min..max {
             list.add(i);
         }
+        assert_eq!(list.len(), expected.len());
         let elems: Vec<_> = list.iter().copied().collect();
         assert_eq!(elems, expected);
 
         let mut rev_list = OrderedList::<usize>::default();
-        for i in (0..100).rev() {
+        for i in (min..max).rev() {
             rev_list.add(i);
         }
+        assert_eq!(list.len(), expected.len());
         let elems: Vec<_> = rev_list.iter().copied().collect();
         assert_eq!(elems, expected);
     }
