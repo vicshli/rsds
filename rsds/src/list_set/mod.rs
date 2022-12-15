@@ -67,17 +67,6 @@ impl<T> Node<T> {
         };
         self.node.write(new_node);
     }
-
-    fn find(&self, target: &T) -> bool
-    where
-        T: PartialEq,
-    {
-        let node = self.get_node_ref();
-        match node {
-            NodeInner::Elem((curr, rest)) => curr == target || rest.find(target),
-            NodeInner::Tail(curr) => curr == target,
-        }
-    }
 }
 
 impl<T> Node<T> {
@@ -182,7 +171,21 @@ impl<T> ListInner<T> {
     where
         T: PartialEq + Eq,
     {
-        self.head.as_ref().map(|h| h.find(target)).unwrap_or(false)
+        let Some(mut curr) = self.head.as_ref() else {
+            return false;
+        };
+
+        loop {
+            let curr_elem = curr.get();
+            if curr_elem == target {
+                return true;
+            } else {
+                match curr.next() {
+                    Some(next) => curr = next,
+                    None => return false,
+                }
+            }
+        }
     }
 
     pub fn find_ordered(&self, target: &T) -> bool
