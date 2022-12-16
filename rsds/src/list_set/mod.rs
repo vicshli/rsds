@@ -365,6 +365,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use quickcheck_macros::quickcheck;
 
@@ -426,5 +428,60 @@ mod tests {
         assert!(list.find(&min));
         assert!(!list.find(&max));
         assert!(list.find(&((min + max) / 2)));
+    }
+
+    fn insert_contains_delete<S>(s: Arc<S>, elems: Arc<Vec<S::Elem>>, min: usize, max: usize)
+    where
+        S: Set + Send,
+        S::Elem: Clone,
+    {
+        let elems = &elems[min..max];
+
+        for v in elems {
+            assert!(s.add(v.clone()));
+        }
+        for v in elems {
+            assert!(s.contains(v));
+        }
+        for v in elems {
+            assert!(s.remove(v));
+        }
+        for v in elems {
+            assert!(!s.contains(v));
+        }
+    }
+
+    fn test_set<S>(elems: Vec<S::Elem>, num_thrs: usize)
+    where
+        S: Set + Send + Sync + Default + 'static,
+        S::Elem: Sync + Send + Clone,
+    {
+        let num_inserts = elems.len() / num_thrs;
+        let elems = Arc::new(elems);
+
+        let set = Arc::new(S::default());
+        let handles: Vec<_> = (0..num_thrs)
+            .map(|i| {
+                let s = set.clone();
+                let elems = elems.clone();
+                let start = i * num_inserts;
+                let end = start + num_inserts;
+                std::thread::spawn(move || insert_contains_delete(s, elems, start, end))
+            })
+            .collect();
+
+        for h in handles {
+            h.join().unwrap();
+        }
+    }
+
+    #[cfg(test)]
+    mod coarse_set {
+        use crate::list_set::coarse_set::CoarseSet;
+
+        #[test]
+        fn coarse_set() {
+            super::test_set::<CoarseSet<usize>>((0..10_000).collect(), 8);
+        }
     }
 }
