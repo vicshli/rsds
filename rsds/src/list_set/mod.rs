@@ -1,5 +1,27 @@
 use std::mem::MaybeUninit;
 
+pub mod coarse_set;
+
+/// Defines common behavior for a set.
+pub trait Set {
+    type Elem;
+
+    /// Attempts to add an element to the set.
+    ///
+    /// Returns `true` if the element is successfully added, or `false` if the
+    /// element already exists in the set.
+    fn add(&self, elem: Self::Elem) -> bool;
+
+    /// Attempts to remove an element from the set.
+    ///
+    /// Returns `true` if the element is found and removed, or `false` if the
+    /// element could not be found.
+    fn remove(&self, elem: &Self::Elem) -> bool;
+
+    /// Searches an element in the set, returning whether it is found.
+    fn contains(&self, elem: &Self::Elem) -> bool;
+}
+
 enum NodeInner<T, N> {
     Elem((T, Box<N>)),
     Tail(T),
@@ -22,13 +44,17 @@ impl<T, N> NodeInner<T, N> {
     }
 }
 
-struct Node<T> {
+pub(crate) struct Node<T> {
     node: MaybeUninit<NodeInner<T, Node<T>>>,
 }
 
 impl<T> Node<T> {
-    fn new_tail(elem: T) -> Self {
+    pub fn new_tail(elem: T) -> Self {
         NodeInner::Tail(elem).into()
+    }
+
+    pub fn new_intermediate(elem: T, rest: Node<T>) -> Self {
+        NodeInner::Elem((elem, Box::new(rest))).into()
     }
 
     fn get(&self) -> &T {
