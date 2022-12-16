@@ -27,6 +27,15 @@ enum NodeInner<T, N> {
     Tail(T),
 }
 
+impl<T, N> NodeInner<T, N> {
+    fn into_elem(self) -> T {
+        match self {
+            NodeInner::Elem((e, _)) => e,
+            NodeInner::Tail(e) => e,
+        }
+    }
+}
+
 impl<T> From<NodeInner<T, Node<T>>> for Node<T> {
     fn from(inner: NodeInner<T, Node<T>>) -> Self {
         Self {
@@ -77,6 +86,38 @@ impl<T> Node<T> {
         }
     }
 
+    /// Transforms a Node into a Tail, returning the rest of the list if exists.
+    fn take_next(&mut self) -> Option<Box<Node<T>>> {
+        let node = self.get_node_mut();
+        match node {
+            NodeInner::Tail(_) => None,
+            NodeInner::Elem(_) => {
+                let node = unsafe {
+                    std::mem::replace(&mut self.node, MaybeUninit::uninit()).assume_init()
+                };
+                // Downgrade Elem to Tail, returning the rest of the list
+                match node {
+                    NodeInner::Elem((elem, rest)) => {
+                        let new_node = NodeInner::Tail(elem);
+                        self.node.write(new_node);
+                        Some(rest)
+                    }
+                    _ => unreachable!(),
+                }
+            }
+        }
+    }
+
+    fn set_next(&mut self, new_next: Option<Box<Node<T>>>) {
+        let node =
+            unsafe { std::mem::replace(&mut self.node, MaybeUninit::uninit()).assume_init() };
+        let new_node = match new_next {
+            Some(rest) => NodeInner::Elem((node.into_elem(), rest)),
+            None => NodeInner::Tail(node.into_elem()),
+        };
+        self.node.write(new_node);
+    }
+
     fn add(&mut self, elem: T) {
         // SAFETY: we only swap init node with uninit memory, so the
         // node being swapped out is initialized.
@@ -93,14 +134,23 @@ impl<T> Node<T> {
         };
         self.node.write(new_node);
     }
-}
 
-impl<T> Node<T> {
+    fn into_parts(self) -> (T, Option<Box<Node<T>>>) {
+        // SAFETY: we guarantee node to be initialized except for during the
+        // Tail -> Elem transition.
+        let node = unsafe { self.node.assume_init() };
+        match node {
+            NodeInner::Elem((elem, rest)) => (elem, Some(rest)),
+            NodeInner::Tail(elem) => (elem, None),
+        }
+    }
+
     fn get_node_mut(&mut self) -> &mut NodeInner<T, Node<T>> {
         // SAFETY: we guarantee node to be initialized except for during the
         // Tail -> Elem transition.
         unsafe { self.node.assume_init_mut() }
     }
+
     fn get_node_ref(&self) -> &NodeInner<T, Node<T>> {
         // SAFETY: we guarantee node to be initialized except for during the
         // Tail -> Elem transition.
