@@ -48,7 +48,24 @@ where
     }
 
     fn contains(&self, elem: &Self::Elem) -> bool {
-        todo!()
+        let head_ref = self.head.curr();
+        if head_ref.is_empty() {
+            return false;
+        }
+
+        let mut curr_ref = Some(head_ref);
+        while let Some(curr) = curr_ref {
+            let curr_elem = curr.elem().unwrap();
+            if curr_elem == elem {
+                return true;
+            } else if curr_elem > elem {
+                return false;
+            } else {
+                curr_ref = curr.next();
+            }
+        }
+
+        false
     }
 }
 
