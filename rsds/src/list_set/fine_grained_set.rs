@@ -3,13 +3,13 @@ use std::sync::{Mutex, MutexGuard};
 use super::{NodeRepr, Set};
 
 pub struct FineGrainedSet<T> {
-    head: LockedNode<T>,
+    head: Node<T>,
 }
 
 impl<T> Default for FineGrainedSet<T> {
     fn default() -> Self {
         Self {
-            head: LockedNode::new_head(),
+            head: Node::new_head(),
         }
     }
 }
@@ -35,13 +35,13 @@ where
                 return false;
             } else if *curr_elem > elem {
                 // insert elem before `curr`
-                curr.replace_existing(|rest| LockedNodeInner::new_intermediate(elem, rest));
+                curr.replace_existing(|rest| LockedNode::new_intermediate(elem, rest));
                 return true;
             } else if !curr.has_next() {
                 // insert elem after `curr`
                 curr.replace_existing(|node| {
                     let (curr, _) = node.into_parts();
-                    LockedNodeInner::new_intermediate(curr, LockedNodeInner::new_tail(elem))
+                    LockedNode::new_intermediate(curr, LockedNode::new_tail(elem))
                 });
                 return true;
             } else {
@@ -68,8 +68,8 @@ where
             match next {
                 Some((elem, rest)) => {
                     head_ref.replace_existing(move |_| match rest {
-                        Some(rest) => LockedNodeInner::new_intermediate(elem, rest),
-                        None => LockedNodeInner::new_tail(elem),
+                        Some(rest) => LockedNode::new_intermediate(elem, rest),
+                        None => LockedNode::new_tail(elem),
                     });
                 }
                 None => {
@@ -109,12 +109,9 @@ where
                         Some(rest) => curr.replace_existing(|n| {
                             let elem = n.into_elem();
                             let parts = rest.into_parts().unwrap();
-                            LockedNodeInner::new_intermediate(
-                                elem,
-                                LockedNodeInner::from_parts(parts),
-                            )
+                            LockedNode::new_intermediate(elem, LockedNode::from_parts(parts))
                         }),
-                        None => curr.replace_existing(|n| LockedNodeInner::new_tail(n.into_elem())),
+                        None => curr.replace_existing(|n| LockedNode::new_tail(n.into_elem())),
                     }
                     return true;
                 }
@@ -146,7 +143,7 @@ where
     }
 }
 
-struct LockedNodeRef<'a, T>(MutexGuard<'a, Option<LockedNodeInner<T>>>);
+struct LockedNodeRef<'a, T>(MutexGuard<'a, Option<LockedNode<T>>>);
 
 impl<'a, T> LockedNodeRef<'a, T> {
     fn is_empty(&self) -> bool {
@@ -159,7 +156,7 @@ impl<'a, T> LockedNodeRef<'a, T> {
 
     fn replace_existing<F>(&mut self, replace_fn: F)
     where
-        F: FnOnce(LockedNodeInner<T>) -> LockedNodeInner<T>,
+        F: FnOnce(LockedNode<T>) -> LockedNode<T>,
     {
         let curr = (*self.0)
             .take()
@@ -170,14 +167,14 @@ impl<'a, T> LockedNodeRef<'a, T> {
     }
 
     fn set_value_on_empty_head(&mut self, elem: T) {
-        *self.0 = Some(LockedNodeInner::new_tail(elem));
+        *self.0 = Some(LockedNode::new_tail(elem));
     }
 
     fn clear(&mut self) {
         *self.0 = None;
     }
 
-    fn into_parts(mut self) -> Option<(T, Option<Box<LockedNode<T>>>)> {
+    fn into_parts(mut self) -> Option<(T, Option<Box<Node<T>>>)> {
         self.0.take().map(|n| n.into_parts())
     }
 
@@ -216,17 +213,17 @@ impl<'a, T> LockedNodeRef<'a, T> {
     }
 }
 
-impl<'a, T> From<MutexGuard<'a, Option<LockedNodeInner<T>>>> for LockedNodeRef<'a, T> {
-    fn from(guard: MutexGuard<'a, Option<LockedNodeInner<T>>>) -> Self {
+impl<'a, T> From<MutexGuard<'a, Option<LockedNode<T>>>> for LockedNodeRef<'a, T> {
+    fn from(guard: MutexGuard<'a, Option<LockedNode<T>>>) -> Self {
         LockedNodeRef(guard)
     }
 }
 
-struct LockedNodeInner<T> {
-    inner: NodeRepr<T, LockedNode<T>>,
+struct LockedNode<T> {
+    inner: NodeRepr<T, Node<T>>,
 }
 
-impl<T> LockedNodeInner<T> {
+impl<T> LockedNode<T> {
     fn new_tail(elem: T) -> Self {
         Self {
             inner: NodeRepr::Tail(elem),
@@ -235,14 +232,14 @@ impl<T> LockedNodeInner<T> {
 
     fn new_intermediate<R>(elem: T, rest: R) -> Self
     where
-        R: Into<Box<LockedNode<T>>>,
+        R: Into<Box<Node<T>>>,
     {
         Self {
             inner: NodeRepr::Elem((elem, rest.into())),
         }
     }
 
-    fn from_parts(parts: (T, Option<Box<LockedNode<T>>>)) -> Self {
+    fn from_parts(parts: (T, Option<Box<Node<T>>>)) -> Self {
         let (elem, maybe_rest) = parts;
         let inner = match maybe_rest {
             Some(rest) => NodeRepr::Elem((elem, rest)),
@@ -266,7 +263,7 @@ impl<T> LockedNodeInner<T> {
         }
     }
 
-    fn into_parts(self) -> (T, Option<Box<LockedNode<T>>>) {
+    fn into_parts(self) -> (T, Option<Box<Node<T>>>) {
         self.inner.into_parts()
     }
 
@@ -275,17 +272,18 @@ impl<T> LockedNodeInner<T> {
     }
 }
 
-impl<T> Into<Box<LockedNode<T>>> for LockedNodeInner<T> {
-    fn into(self) -> Box<LockedNode<T>> {
+#[allow(clippy::from_over_into)]
+impl<T> Into<Box<Node<T>>> for LockedNode<T> {
+    fn into(self) -> Box<Node<T>> {
         Box::new(self.into())
     }
 }
 
-struct LockedNode<T> {
-    node: Mutex<Option<LockedNodeInner<T>>>,
+struct Node<T> {
+    node: Mutex<Option<LockedNode<T>>>,
 }
 
-impl<T> LockedNode<T> {
+impl<T> Node<T> {
     fn new_head() -> Self {
         Self {
             node: Mutex::new(None),
@@ -297,8 +295,8 @@ impl<T> LockedNode<T> {
     }
 }
 
-impl<T> From<LockedNodeInner<T>> for LockedNode<T> {
-    fn from(inner: LockedNodeInner<T>) -> Self {
+impl<T> From<LockedNode<T>> for Node<T> {
+    fn from(inner: LockedNode<T>) -> Self {
         Self {
             node: Mutex::new(Some(inner)),
         }
