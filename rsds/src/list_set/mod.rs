@@ -499,4 +499,14 @@ mod tests {
             super::test_set::<CoarseSet<usize>>((0..10_000).collect(), 8);
         }
     }
+
+    #[cfg(test)]
+    mod fine_grained_set {
+        use crate::list_set::fine_grained_set::FineGrainedSet;
+
+        #[test]
+        fn fine_grained_set() {
+            super::test_set::<FineGrainedSet<usize>>((0..10_000).collect(), 8);
+        }
+    }
 }
