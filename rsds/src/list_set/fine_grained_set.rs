@@ -27,8 +27,8 @@ where
             return true;
         }
 
-        let mut curr_ref = Some(head_ref);
-        while let Some(mut curr) = curr_ref {
+        let mut curr = head_ref;
+        loop {
             let curr_elem = curr.elem().unwrap();
             if *curr_elem == elem {
                 // found existing, do not insert
@@ -45,11 +45,9 @@ where
                 });
                 return true;
             } else {
-                curr_ref = curr.into_next();
+                curr = curr.into_next().expect("next node should exist");
             }
         }
-
-        true
     }
 
     fn remove(&self, elem: &Self::Elem) -> bool {
