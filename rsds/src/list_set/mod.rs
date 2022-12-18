@@ -1,6 +1,7 @@
 use std::mem::MaybeUninit;
 
 pub mod coarse_set;
+pub mod fine_grained_set;
 
 /// Defines common behavior for a set.
 pub trait Set {
@@ -53,7 +54,7 @@ impl<T, N> NodeInner<T, N> {
     }
 }
 
-pub(crate) struct Node<T> {
+struct Node<T> {
     node: MaybeUninit<NodeInner<T, Node<T>>>,
 }
 
