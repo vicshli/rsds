@@ -35,6 +35,13 @@ impl<T, N> NodeInner<T, N> {
             NodeInner::Tail(e) => e,
         }
     }
+
+    fn into_parts(self) -> (T, Option<Box<N>>) {
+        match self {
+            NodeInner::Elem((elem, rest)) => (elem, Some(rest)),
+            NodeInner::Tail(elem) => (elem, None),
+        }
+    }
 }
 
 impl<T> From<NodeInner<T, Node<T>>> for Node<T> {
@@ -129,10 +136,7 @@ impl<T> Node<T> {
     fn into_parts(self) -> (T, Option<Box<Node<T>>>) {
         // SAFETY: we guarantee node to be initialized between method invocations.
         let node = unsafe { self.node.assume_init() };
-        match node {
-            NodeInner::Elem((elem, rest)) => (elem, Some(rest)),
-            NodeInner::Tail(elem) => (elem, None),
-        }
+        node.into_parts()
     }
 
     fn replace_node_with<F>(&mut self, node_replacer: F)
