@@ -6,8 +6,8 @@ pub struct FineGrainedSet<T> {
     head: LockedNode<T>,
 }
 
-impl<T> FineGrainedSet<T> {
-    pub fn new() -> Self {
+impl<T> Default for FineGrainedSet<T> {
+    fn default() -> Self {
         Self {
             head: LockedNode::new_head(),
         }
@@ -31,16 +31,25 @@ where
         while let Some(mut curr) = curr_ref {
             let curr_elem = curr.elem().unwrap();
             if *curr_elem == elem {
+                // found existing, do not insert
                 return false;
             } else if *curr_elem > elem {
+                // insert elem before `curr`
                 curr.replace_existing(|rest| LockedNodeInner::new_intermediate(elem, rest));
+                return true;
+            } else if !curr.has_next() {
+                // insert elem after `curr`
+                curr.replace_existing(|node| {
+                    let (curr, _) = node.into_parts();
+                    LockedNodeInner::new_intermediate(curr, LockedNodeInner::new_tail(elem))
+                });
                 return true;
             } else {
                 curr_ref = curr.into_next();
             }
         }
 
-        false
+        true
     }
 
     fn remove(&self, elem: &Self::Elem) -> bool {
@@ -174,6 +183,10 @@ impl<'a, T> LockedNodeRef<'a, T> {
         self.0.take().map(|n| n.into_parts())
     }
 
+    fn has_next(&self) -> bool {
+        self.0.as_ref().map(|n| n.has_next()).unwrap_or(false)
+    }
+
     fn next(&self) -> Option<LockedNodeRef<'_, T>> {
         if self.is_empty() {
             return None;
@@ -242,6 +255,10 @@ impl<T> LockedNodeInner<T> {
 
     fn elem(&self) -> &T {
         self.inner.elem()
+    }
+
+    fn has_next(&self) -> bool {
+        matches!(self.inner, NodeInner::Elem(_))
     }
 
     fn next(&self) -> Option<LockedNodeRef<'_, T>> {
