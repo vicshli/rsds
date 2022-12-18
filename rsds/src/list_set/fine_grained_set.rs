@@ -1,6 +1,6 @@
 use std::sync::{Mutex, MutexGuard};
 
-use super::{NodeInner, Set};
+use super::{NodeRepr, Set};
 
 pub struct FineGrainedSet<T> {
     head: LockedNode<T>,
@@ -223,13 +223,13 @@ impl<'a, T> From<MutexGuard<'a, Option<LockedNodeInner<T>>>> for LockedNodeRef<'
 }
 
 struct LockedNodeInner<T> {
-    inner: NodeInner<T, LockedNode<T>>,
+    inner: NodeRepr<T, LockedNode<T>>,
 }
 
 impl<T> LockedNodeInner<T> {
     fn new_tail(elem: T) -> Self {
         Self {
-            inner: NodeInner::Tail(elem),
+            inner: NodeRepr::Tail(elem),
         }
     }
 
@@ -238,15 +238,15 @@ impl<T> LockedNodeInner<T> {
         R: Into<Box<LockedNode<T>>>,
     {
         Self {
-            inner: NodeInner::Elem((elem, rest.into())),
+            inner: NodeRepr::Elem((elem, rest.into())),
         }
     }
 
     fn from_parts(parts: (T, Option<Box<LockedNode<T>>>)) -> Self {
         let (elem, maybe_rest) = parts;
         let inner = match maybe_rest {
-            Some(rest) => NodeInner::Elem((elem, rest)),
-            None => NodeInner::Tail(elem),
+            Some(rest) => NodeRepr::Elem((elem, rest)),
+            None => NodeRepr::Tail(elem),
         };
         Self { inner }
     }
@@ -256,13 +256,13 @@ impl<T> LockedNodeInner<T> {
     }
 
     fn has_next(&self) -> bool {
-        matches!(self.inner, NodeInner::Elem(_))
+        matches!(self.inner, NodeRepr::Elem(_))
     }
 
     fn next(&self) -> Option<LockedNodeRef<'_, T>> {
         match &self.inner {
-            NodeInner::Elem((_, rest)) => Some(rest.as_ref().locked()),
-            NodeInner::Tail(_) => None,
+            NodeRepr::Elem((_, rest)) => Some(rest.as_ref().locked()),
+            NodeRepr::Tail(_) => None,
         }
     }
 

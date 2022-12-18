@@ -23,55 +23,55 @@ pub trait Set {
     fn contains(&self, elem: &Self::Elem) -> bool;
 }
 
-enum NodeInner<T, N> {
+enum NodeRepr<T, N> {
     Elem((T, Box<N>)),
     Tail(T),
 }
 
-impl<T, N> NodeInner<T, N> {
+impl<T, N> NodeRepr<T, N> {
     fn into_elem(self) -> T {
         match self {
-            NodeInner::Elem((e, _)) => e,
-            NodeInner::Tail(e) => e,
+            NodeRepr::Elem((e, _)) => e,
+            NodeRepr::Tail(e) => e,
         }
     }
 
     fn into_parts(self) -> (T, Option<Box<N>>) {
         match self {
-            NodeInner::Elem((elem, rest)) => (elem, Some(rest)),
-            NodeInner::Tail(elem) => (elem, None),
+            NodeRepr::Elem((elem, rest)) => (elem, Some(rest)),
+            NodeRepr::Tail(elem) => (elem, None),
         }
     }
 }
 
-impl<T> From<NodeInner<T, Node<T>>> for Node<T> {
-    fn from(inner: NodeInner<T, Node<T>>) -> Self {
+impl<T> From<NodeRepr<T, Node<T>>> for Node<T> {
+    fn from(inner: NodeRepr<T, Node<T>>) -> Self {
         Self {
             node: MaybeUninit::new(inner),
         }
     }
 }
 
-impl<T, N> NodeInner<T, N> {
+impl<T, N> NodeRepr<T, N> {
     fn elem(&self) -> &T {
         match self {
-            NodeInner::Elem((e, _)) => e,
-            NodeInner::Tail(e) => e,
+            NodeRepr::Elem((e, _)) => e,
+            NodeRepr::Tail(e) => e,
         }
     }
 }
 
 struct Node<T> {
-    node: MaybeUninit<NodeInner<T, Node<T>>>,
+    node: MaybeUninit<NodeRepr<T, Node<T>>>,
 }
 
 impl<T> Node<T> {
     pub fn new_tail(elem: T) -> Self {
-        NodeInner::Tail(elem).into()
+        NodeRepr::Tail(elem).into()
     }
 
     pub fn new_intermediate(elem: T, rest: Node<T>) -> Self {
-        NodeInner::Elem((elem, Box::new(rest))).into()
+        NodeRepr::Elem((elem, Box::new(rest))).into()
     }
 
     fn get(&self) -> &T {
@@ -81,16 +81,16 @@ impl<T> Node<T> {
     fn next(&self) -> Option<&Self> {
         let node = self.get_node_ref();
         match node {
-            NodeInner::Tail(_) => None,
-            NodeInner::Elem((_, rest)) => Some(rest.as_ref()),
+            NodeRepr::Tail(_) => None,
+            NodeRepr::Elem((_, rest)) => Some(rest.as_ref()),
         }
     }
 
     fn next_mut(&mut self) -> Option<&mut Self> {
         let node = self.get_node_mut();
         match node {
-            NodeInner::Tail(_) => None,
-            NodeInner::Elem((_, rest)) => Some(rest.as_mut()),
+            NodeRepr::Tail(_) => None,
+            NodeRepr::Elem((_, rest)) => Some(rest.as_mut()),
         }
     }
 
@@ -98,13 +98,13 @@ impl<T> Node<T> {
     fn take_next(&mut self) -> Option<Box<Node<T>>> {
         let node = self.get_node_mut();
         match node {
-            NodeInner::Tail(_) => None,
-            NodeInner::Elem(_) => {
+            NodeRepr::Tail(_) => None,
+            NodeRepr::Elem(_) => {
                 self.replace_node_with_ret(|node| {
                     // Downgrade Elem to Tail, returning the rest of the list
                     match node {
-                        NodeInner::Elem((elem, rest)) => {
-                            let new_node = NodeInner::Tail(elem);
+                        NodeRepr::Elem((elem, rest)) => {
+                            let new_node = NodeRepr::Tail(elem);
                             (new_node, Some(rest))
                         }
                         _ => unreachable!(),
@@ -116,19 +116,17 @@ impl<T> Node<T> {
 
     fn set_next(&mut self, new_next: Option<Box<Node<T>>>) {
         self.replace_node_with(move |node| match new_next {
-            Some(rest) => NodeInner::Elem((node.into_elem(), rest)),
-            None => NodeInner::Tail(node.into_elem()),
+            Some(rest) => NodeRepr::Elem((node.into_elem(), rest)),
+            None => NodeRepr::Tail(node.into_elem()),
         });
     }
 
     fn add(&mut self, elem: T) {
         self.replace_node_with(|node| match node {
-            NodeInner::Tail(curr) => {
-                NodeInner::Elem((curr, Box::new(NodeInner::Tail(elem).into())))
-            }
-            NodeInner::Elem((curr, rest)) => {
-                let next = NodeInner::Elem((elem, rest));
-                NodeInner::Elem((curr, Box::new(next.into())))
+            NodeRepr::Tail(curr) => NodeRepr::Elem((curr, Box::new(NodeRepr::Tail(elem).into()))),
+            NodeRepr::Elem((curr, rest)) => {
+                let next = NodeRepr::Elem((elem, rest));
+                NodeRepr::Elem((curr, Box::new(next.into())))
             }
         })
     }
@@ -141,7 +139,7 @@ impl<T> Node<T> {
 
     fn replace_node_with<F>(&mut self, node_replacer: F)
     where
-        F: FnOnce(NodeInner<T, Node<T>>) -> NodeInner<T, Node<T>>,
+        F: FnOnce(NodeRepr<T, Node<T>>) -> NodeRepr<T, Node<T>>,
     {
         // SAFETY: we guarantee node to be initialized between method invocations.
         let old_node =
@@ -152,7 +150,7 @@ impl<T> Node<T> {
 
     fn replace_node_with_ret<F, Ret>(&mut self, node_replacer: F) -> Ret
     where
-        F: FnOnce(NodeInner<T, Node<T>>) -> (NodeInner<T, Node<T>>, Ret),
+        F: FnOnce(NodeRepr<T, Node<T>>) -> (NodeRepr<T, Node<T>>, Ret),
     {
         // SAFETY: we guarantee node to be initialized between method invocations.
         let old_node =
@@ -162,12 +160,12 @@ impl<T> Node<T> {
         ret
     }
 
-    fn get_node_mut(&mut self) -> &mut NodeInner<T, Node<T>> {
+    fn get_node_mut(&mut self) -> &mut NodeRepr<T, Node<T>> {
         // SAFETY: we guarantee node to be initialized between method invocations.
         unsafe { self.node.assume_init_mut() }
     }
 
-    fn get_node_ref(&self) -> &NodeInner<T, Node<T>> {
+    fn get_node_ref(&self) -> &NodeRepr<T, Node<T>> {
         // SAFETY: we guarantee node to be initialized between method invocations.
         unsafe { self.node.assume_init_ref() }
     }
