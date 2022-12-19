@@ -47,6 +47,13 @@ impl<'a, K: PartialEq, V> Deref for ElemRef<'a, K, V> {
     }
 }
 
+/// A concurrent hashmap that implements striped locking.
+///
+/// Note:
+///
+/// The current implementation uses one lock per bucket; a lock never multiplexes
+/// over multiple buckets. This may change in the future to better reflect the
+/// requirements of stripe locking.
 pub struct StripedHashMap<K: Hash + PartialEq, V, S = RandomState> {
     buckets: CachePadded<AtomicPtr<Vec<ProtectedBucket<K, V>>>>,
     max_bucket_size: usize,
@@ -67,10 +74,13 @@ impl<K, V> StripedHashMap<K, V, RandomState>
 where
     K: Hash + PartialEq,
 {
+    /// Creates a new [`StripedHashMap`].
     pub fn new() -> Self {
         StripedHashMap::build(DEFAULT_NUM_BUCKETS, RandomState::default())
     }
 
+    /// Creates a new [`StripedHashMap`] with pre-allocated space for `capacity`
+    /// key-value pairs.
     pub fn with_capacity(capacity: usize) -> Self {
         let num_buckets = (capacity / DEFAULT_MAX_BUCKET_SIZE) * 2;
         StripedHashMap::build(num_buckets, RandomState::default())
@@ -82,6 +92,7 @@ where
     K: Hash + PartialEq,
     S: BuildHasher,
 {
+    /// Creates a new [`StripedHashMap`] with a given hasher.
     pub fn with_hasher(hasher: S) -> Self {
         StripedHashMap::build(DEFAULT_NUM_BUCKETS, hasher)
     }

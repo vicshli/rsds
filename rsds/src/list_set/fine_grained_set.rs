@@ -2,6 +2,7 @@ use std::sync::{Mutex, MutexGuard};
 
 use super::{NodeRepr, Set};
 
+/// A linked list-based set implemented with fine-grained (hand-over-hand) locking.
 pub struct FineGrainedSet<T> {
     head: Node<T>,
 }

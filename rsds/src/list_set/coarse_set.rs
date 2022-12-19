@@ -2,6 +2,7 @@ use std::sync::RwLock;
 
 use super::{Node, Set};
 
+/// A linked list-based set implemented with coarse-grained locking.
 #[derive(Default)]
 pub struct CoarseSet<T> {
     head: RwLock<Option<Node<T>>>,

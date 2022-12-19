@@ -1,10 +1,16 @@
+//! A module implementing set as linked lists.
+
 use std::mem::MaybeUninit;
 
-pub mod coarse_set;
-pub mod fine_grained_set;
+mod coarse_set;
+mod fine_grained_set;
+
+pub use coarse_set::CoarseSet;
+pub use fine_grained_set::FineGrainedSet;
 
 /// Defines common behavior for a set.
 pub trait Set {
+    /// Type of element contained in a set.
     type Elem;
 
     /// Attempts to add an element to the set.
@@ -171,6 +177,7 @@ impl<T> Node<T> {
     }
 }
 
+/// Linked list iterator.
 pub struct ListIter<'a, T> {
     curr: Option<&'a Node<T>>,
 }
@@ -316,6 +323,7 @@ impl<T> ListInner<T> {
     }
 }
 
+/// A linked list.
 #[derive(Default)]
 pub struct List<T> {
     inner: ListInner<T>,
@@ -325,27 +333,33 @@ impl<T> List<T>
 where
     T: PartialEq + Eq,
 {
+    /// Appends an element to the end of the linked list.
     pub fn add(&mut self, elem: T) {
         self.inner.add(elem)
     }
 
+    /// Checks whether the given element is part of the linked list.
     pub fn find(&self, target: &T) -> bool {
         self.inner.find(target)
     }
 
+    /// Returns the linked list's iterator.
     pub fn iter(&self) -> ListIter<'_, T> {
         self.inner.iter()
     }
 
+    /// Returns the number of elements contained in this linked list.
     pub fn len(&self) -> usize {
         self.inner.len()
     }
 
+    /// Checks whether the linked list is empty.
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
 }
 
+/// A sorted linked list.
 #[derive(Default)]
 pub struct OrderedList<T> {
     inner: ListInner<T>,
@@ -355,22 +369,27 @@ impl<T> OrderedList<T>
 where
     T: PartialOrd + PartialEq + Eq,
 {
+    /// Appends an element to the end of the linked list.
     pub fn add(&mut self, elem: T) {
         self.inner.add_ordered(elem)
     }
 
+    /// Checks whether the given element is part of the linked list.
     pub fn find(&self, target: &T) -> bool {
         self.inner.find_ordered(target)
     }
 
+    /// Returns the linked list's iterator.
     pub fn iter(&self) -> ListIter<'_, T> {
         self.inner.iter()
     }
 
+    /// Returns the number of elements contained in this linked list.
     pub fn len(&self) -> usize {
         self.inner.len()
     }
 
+    /// Checks whether the linked list is empty.
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
