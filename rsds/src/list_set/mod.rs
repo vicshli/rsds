@@ -4,9 +4,11 @@ use std::mem::MaybeUninit;
 
 mod coarse_set;
 mod fine_grained_set;
+mod optimistic_set;
 
 pub use coarse_set::CoarseSet;
 pub use fine_grained_set::FineGrainedSet;
+pub use optimistic_set::OptimisticSet;
 
 /// Defines common behavior for a set.
 pub trait Set {
