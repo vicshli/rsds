@@ -210,12 +210,16 @@ where
     }
 }
 
-impl<'a, K, V, S> Map<'a, K, V, ElemRef<'a, K, V>> for StripedHashMap<K, V, S>
+impl<K, V, S> Map for StripedHashMap<K, V, S>
 where
     K: Hash + PartialEq,
     S: BuildHasher,
 {
-    fn get(&'a self, key: &K) -> Option<ElemRef<'a, K, V>> {
+    type Key = K;
+    type Val = V;
+    type ValueRef<'a> = ElemRef<'a, K, V> where K: 'a, V: 'a, S: 'a;
+
+    fn get(&self, key: &K) -> Option<ElemRef<'_, K, V>> {
         let searcher = MaybeElemRef {
             guard: self._get_read_bucket_by_key(key),
         };

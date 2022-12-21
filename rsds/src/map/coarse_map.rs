@@ -21,11 +21,15 @@ impl<'a, K, V, S> Deref for ElemRef<'a, K, V, S> {
     }
 }
 
-impl<'a, K, V, S> Map<'a, K, V, ElemRef<'a, K, V, S>> for CoarseMap<K, V, S>
+impl<K, V, S> Map for CoarseMap<K, V, S>
 where
     K: PartialEq + Eq + Hash + PartialEq,
     S: BuildHasher,
 {
+    type Key = K;
+    type Val = V;
+    type ValueRef<'a> = ElemRef<'a, K, V, S> where K: 'a, V: 'a, S: 'a;
+
     fn get(&self, key: &K) -> Option<ElemRef<'_, K, V, S>> {
         let guard = self.0.lock().unwrap();
         let val = guard.get(key);
