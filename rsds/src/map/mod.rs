@@ -1,7 +1,9 @@
 //! This module contains concurrent hashmap implementations.
 
+mod coarse_map;
 mod striped_map;
 
+pub use coarse_map::CoarseMap;
 pub use striped_map::StripedHashMap;
 
 use std::hash::Hash;
