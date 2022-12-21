@@ -4,13 +4,14 @@ Some concurrent rust data structures.
 
 This is a (slow but ongoing) effort to port data structures in
 [The Art of Multiprocessor Programming](https://www.amazon.com/Art-Multiprocessor-Programming-Revised-Reprint/dp/0123973376)
-to Rust.
+to Rust. `rsds` follows the book's Java implementations in spirit, but the
+implementations could differ significantly because of how Rust works.
 
 ## Roadmap
 
 - LinkedLists (ch. 9)
-  - [x] `CoarseList`
-  - [x] `FineGrainedList`
+  - [x] `CoarseList` (implemented as `CoarseSet`)
+  - [x] `FineGrainedList` (implemented as `FineGrainedSet`)
   - [ ] `OptimisticList`
   - [ ] `LazyList`
   - [ ] `LockFreeList`
@@ -22,10 +23,10 @@ to Rust.
 - Stacks (ch. 11)
   - [ ] `LockFreeStack`
   - [ ] `EliminationBackoffStack`
-- HashSets (ch. 13)
+- HashMaps (related to ch. 13 on HashSets)
   - Closed addressing
-    - [ ] `CoarseHashSet`
-    - [ ] `StripedHashSet`
+    - [x] `CoarseHashSet` (implemented as `CoarseMap`)
+    - [x] `StripedHashSet` (implemented as `StripedMap`)
     - [ ] `RefinableHashSet`
     - [ ] `LockFreeHashSet` (recursive split-ordering)
   - Open addressing
